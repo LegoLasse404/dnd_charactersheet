@@ -400,10 +400,16 @@ function AbilitiesAndItemsContent() {
 
   const totalAbilities = actions.length + spells.length + cantrips.length;
 
+  const spellsByLevel = spells.reduce<Record<number, CharacterSpell[]>>((acc, s) => {
+    if (!acc[s.spell_level]) acc[s.spell_level] = [];
+    acc[s.spell_level].push(s);
+    return acc;
+  }, {});
+  const spellLevelsPresent = Object.keys(spellsByLevel).map(Number).sort((a, b) => a - b);
+
   const groups: { title: string; type: AbilityType; table: string; items: AnyAbility[] }[] = [
     { title: "Actions", type: "action", table: "character_actions", items: actions },
     { title: "Cantrips", type: "cantrip", table: "character_cantrips", items: cantrips },
-    { title: "Spells", type: "spell", table: "character_spells", items: spells },
   ];
 
   return (
@@ -528,6 +534,53 @@ function AbilitiesAndItemsContent() {
                     )}
                   </section>
                 ))}
+
+                <section>
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Spells</h3>
+                  {spells.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-3 text-sm text-zinc-500">
+                      No spells yet.
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {spellLevelsPresent.map((level) => (
+                        <div key={level}>
+                          <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Level {level}</p>
+                          <div className="space-y-2">
+                            {spellsByLevel[level].map((item) => (
+                              <article
+                                key={item.id}
+                                className="grid grid-cols-[minmax(0,1fr)_72px] gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5"
+                              >
+                                <div className="min-w-0">
+                                  <h4 className="truncate text-sm font-semibold text-zinc-900">{item.name}</h4>
+                                  <p className="mt-1 text-xs text-zinc-600">{formatAbilityMeta(item, "spell")}</p>
+                                </div>
+                                <div className="flex flex-col items-end gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => router.push(`/edit/add-ability?characterId=${characterId ?? ""}&type=spell&abilityId=${item.id}`)}
+                                    className="w-16 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-center text-xs font-semibold text-zinc-900 transition hover:bg-zinc-100"
+                                  >
+                                    Edit
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeleteAbility("character_spells", item.id)}
+                                    disabled={deletingAbility?.table === "character_spells" && deletingAbility?.id === item.id}
+                                    className="w-16 rounded-md border border-red-300 bg-white px-2.5 py-1 text-center text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                                  >
+                                    {deletingAbility?.table === "character_spells" && deletingAbility?.id === item.id ? "..." : "Delete"}
+                                  </button>
+                                </div>
+                              </article>
+                            ))}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </section>
               </div>
             )}
 

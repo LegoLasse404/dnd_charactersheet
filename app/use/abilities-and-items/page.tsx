@@ -361,14 +361,16 @@ function AbilitiesAndItemsReadonlyContent() {
 
   const totalAbilities = actions.length + spells.length + cantrips.length;
 
-  const availableSlots = Object.entries(currentSpellSlots)
-    .filter(([, value]) => Number(value) > 0)
-    .map(([level, value]) => ({ level, value }));
+  const spellsByLevel = spells.reduce<Record<number, CharacterSpell[]>>((acc, s) => {
+    if (!acc[s.spell_level]) acc[s.spell_level] = [];
+    acc[s.spell_level].push(s);
+    return acc;
+  }, {});
+  const spellLevelsPresent = Object.keys(spellsByLevel).map(Number).sort((a, b) => a - b);
 
   const groups: { title: string; type: AbilityType; items: (CharacterAction | CharacterSpell | CharacterCantrip)[] }[] = [
     { title: "Actions", type: "action", items: actions },
     { title: "Cantrips", type: "cantrip", items: cantrips },
-    { title: "Spells", type: "spell", items: spells },
   ];
 
   return (
@@ -496,48 +498,86 @@ function AbilitiesAndItemsReadonlyContent() {
                                 <span className="text-sm text-zinc-700">/ {(item as CharacterAction).charges}</span>
                               </div>
                             )}
-
-                            {group.type === "spell" && availableSlots.length > 0 && (
-                              <div
-                                className="flex items-center gap-2 ml-4"
-                                onClick={(e) => e.stopPropagation()}
-                              >
-                                <label className="text-sm text-zinc-700 mr-1">Use:</label>
-                                <select
-                                  className="rounded border border-blue-300 bg-blue-50 px-2 py-1 text-base font-semibold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                                  value={selectedSpellSlots[item.id] ?? ""}
-                                  onChange={(e) =>
-                                    setSelectedSpellSlots((prev) => ({ ...prev, [item.id]: e.target.value }))
-                                  }
-                                  disabled={saving}
-                                >
-                                  <option value="">Select</option>
-                                  {availableSlots.map(({ level, value }) => (
-                                    <option key={level} value={level}>
-                                      Level {level} ({value})
-                                    </option>
-                                  ))}
-                                </select>
-                                <button
-                                  type="button"
-                                  className="rounded bg-blue-600 px-3 py-1 text-white font-semibold hover:bg-blue-700 disabled:opacity-60"
-                                  disabled={
-                                    !selectedSpellSlots[item.id] ||
-                                    Number(currentSpellSlots[selectedSpellSlots[item.id]]) <= 0 ||
-                                    saving
-                                  }
-                                  onClick={() => handleCastSpell(item.id, selectedSpellSlots[item.id])}
-                                >
-                                  Cast
-                                </button>
-                              </div>
-                            )}
                           </article>
                         ))}
                       </div>
                     )}
                   </section>
                 ))}
+
+                <section>
+                  <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">Spells</h3>
+                  {spells.length === 0 ? (
+                    <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-3 text-sm text-zinc-500">
+                      No spells yet.
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {spellLevelsPresent.map((level) => {
+                        const slotsForLevel = Object.entries(currentSpellSlots)
+                          .filter(([slotLevel, value]) => Number(slotLevel) >= level && Number(value) > 0)
+                          .map(([slotLevel, value]) => ({ level: slotLevel, value }));
+                        return (
+                          <div key={level}>
+                            <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-zinc-400">Level {level}</p>
+                            <div className="space-y-2">
+                              {spellsByLevel[level].map((item) => (
+                                <article
+                                  key={item.id}
+                                  className="flex items-center justify-between rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-3 text-base cursor-pointer hover:bg-blue-50 transition"
+                                  onClick={() => {
+                                    window.location.href = `/use/ability-details?abilityId=${item.id}&type=spell`;
+                                  }}
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <h4 className="truncate font-semibold text-zinc-900 text-lg">{item.name}</h4>
+                                    <p className="mt-1 text-sm text-zinc-600">{formatAbilityMeta(item, "spell")}</p>
+                                  </div>
+
+                                  {slotsForLevel.length > 0 && (
+                                    <div
+                                      className="flex items-center gap-2 ml-4"
+                                      onClick={(e) => e.stopPropagation()}
+                                    >
+                                      <label className="text-sm text-zinc-700 mr-1">Use:</label>
+                                      <select
+                                        className="rounded border border-blue-300 bg-blue-50 px-2 py-1 text-base font-semibold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                        value={selectedSpellSlots[item.id] ?? ""}
+                                        onChange={(e) =>
+                                          setSelectedSpellSlots((prev) => ({ ...prev, [item.id]: e.target.value }))
+                                        }
+                                        disabled={saving}
+                                      >
+                                        <option value="">Select</option>
+                                        {slotsForLevel.map(({ level: slotLevel, value }) => (
+                                          <option key={slotLevel} value={slotLevel}>
+                                            Level {slotLevel} ({value})
+                                          </option>
+                                        ))}
+                                      </select>
+                                      <button
+                                        type="button"
+                                        className="rounded bg-blue-600 px-3 py-1 text-white font-semibold hover:bg-blue-700 disabled:opacity-60"
+                                        disabled={
+                                          !selectedSpellSlots[item.id] ||
+                                          Number(currentSpellSlots[selectedSpellSlots[item.id]]) <= 0 ||
+                                          saving
+                                        }
+                                        onClick={() => handleCastSpell(item.id, selectedSpellSlots[item.id])}
+                                      >
+                                        Cast
+                                      </button>
+                                    </div>
+                                  )}
+                                </article>
+                              ))}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
               </div>
             )}
           </section>
