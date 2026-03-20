@@ -145,7 +145,7 @@ function UseCharacterContent() {
       setCharacter(charData);
       const { data: statData, error: statError } = await supabase
         .from("character_stats")
-        .select("str, dex, con, int, wis, cha, ac, speed, hp_max, hit_dice, curr_hp, curr_hit_die, death_save_successes, death_save_failures, prof_save_str, prof_save_dex, prof_save_con, prof_save_int, prof_save_wis, prof_save_cha, prof_skill_acrobatics, prof_skill_animal_handling, prof_skill_arcana, prof_skill_athletics, prof_skill_deception, prof_skill_history, prof_skill_insight, prof_skill_intimidation, prof_skill_investigation, prof_skill_medicine, prof_skill_nature, prof_skill_perception, prof_skill_performance, prof_skill_persuasion, prof_skill_religion, prof_skill_sleight_of_hand, prof_skill_stealth, prof_skill_survival")
+        .select("str, dex, con, int, wis, cha, ac, speed, hp_max, hit_dice, curr_hp, curr_hit_die, death_save_successes, death_save_failures, prof_save_str, prof_save_dex, prof_save_con, prof_save_int, prof_save_wis, prof_save_cha, prof_skill_acrobatics, prof_skill_animal_handling, prof_skill_arcana, prof_skill_athletics, prof_skill_deception, prof_skill_history, prof_skill_insight, prof_skill_intimidation, prof_skill_investigation, prof_skill_medicine, prof_skill_nature, prof_skill_perception, prof_skill_performance, prof_skill_persuasion, prof_skill_religion, prof_skill_sleight_of_hand, prof_skill_stealth, prof_skill_survival, expertise_skill_acrobatics, expertise_skill_animal_handling, expertise_skill_arcana, expertise_skill_athletics, expertise_skill_deception, expertise_skill_history, expertise_skill_insight, expertise_skill_intimidation, expertise_skill_investigation, expertise_skill_medicine, expertise_skill_nature, expertise_skill_perception, expertise_skill_performance, expertise_skill_persuasion, expertise_skill_religion, expertise_skill_sleight_of_hand, expertise_skill_stealth, expertise_skill_survival")
         .eq("character_id", characterId)
         .maybeSingle<CharacterStatsRow>();
       if (statError) {
@@ -195,7 +195,7 @@ function UseCharacterContent() {
       setSaveError(error.message);
       return;
     }
-    router.push(`/stat-sheet?characterId=${characterId}`);
+    router.push(`/edit/stat-sheet?characterId=${characterId}`);
   };
 
   if (headerLoading) {
@@ -378,12 +378,14 @@ function UseCharacterContent() {
                 {[firstSkillColumn, secondSkillColumn].map((skillColumn, columnIndex) => (
                   <div key={columnIndex} className="space-y-2">
                     {skillColumn.map((entry) => {
-                      const isProficient = Boolean(stats[`prof_skill_${entry.name.toLowerCase().replace(/ /g, "_")}`]);
-                      const skillTotal = modifiers[entry.ability] + (isProficient ? proficiencyBonus : 0);
+                      const skillKey = entry.name.toLowerCase().replace(/ /g, "_");
+                      const isProficient = Boolean(stats[`prof_skill_${skillKey}`]);
+                      const isExpertise = Boolean(stats[`expertise_skill_${skillKey}`]);
+                      const skillTotal = modifiers[entry.ability] + (isExpertise ? proficiencyBonus * 2 : isProficient ? proficiencyBonus : 0);
                       return (
                         <div key={entry.name} className="flex items-center justify-between gap-3 rounded-lg bg-zinc-50 px-3 py-2">
                           <div className="flex items-center gap-2">
-                            <span className={`flex h-4 w-4 items-center justify-center rounded-sm border border-zinc-400 bg-white text-[10px] font-bold leading-none text-zinc-900 ${isProficient ? 'border-zinc-900 bg-zinc-900 text-white' : ''}`}>{isProficient ? "✓" : ""}</span>
+                            <span className={`flex h-4 w-4 items-center justify-center rounded-sm border text-[10px] font-bold leading-none transition ${isExpertise ? 'border-amber-500 bg-amber-500 text-white' : isProficient ? 'border-zinc-900 bg-zinc-900 text-white' : 'border-zinc-400 bg-white text-zinc-900'}`}>{isExpertise ? "✦" : isProficient ? "✓" : ""}</span>
                             <div>
                               <p className="text-sm font-medium text-zinc-900">{entry.name}</p>
                               <p className="text-[10px] uppercase tracking-wide text-zinc-500">{entry.ability}</p>
@@ -425,7 +427,7 @@ function UseCharacterContent() {
       <div className="fixed bottom-6 right-6 z-50">
         <button
           type="button"
-          onClick={() => window.location.href = `/abilities-and-items-readonly?characterId=${characterId}`}
+          onClick={() => window.location.href = `/use/abilities-and-items?characterId=${characterId}`}
           className="flex items-center justify-center h-10 w-10 rounded-full border border-zinc-300 bg-white hover:bg-zinc-100 focus:outline-none focus:ring-2 focus:ring-zinc-900 shadow-md"
           aria-label="View abilities and items (read-only)"
         >

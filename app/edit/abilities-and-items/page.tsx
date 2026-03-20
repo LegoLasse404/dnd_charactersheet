@@ -40,16 +40,39 @@ type CharacterInventory = {
   feats: string | null;
 };
 
-type CharacterAttack = {
+type CharacterAction = {
   id: number;
   name: string;
-  bonus_ability: string;
-  usage_timing: string | null;
-  restore_on: string | null;
-  damage: string;
-  type: string | null;
   description: string;
+  damage: string | null;
+  scaling: string | null;
+  usage_timing: string;
+  charges: number | null;
+  curr_charges: number | null;
+  restore_on: string | null;
 };
+
+type CharacterSpell = {
+  id: number;
+  name: string;
+  description: string;
+  damage: string | null;
+  scaling: string | null;
+  usage_timing: string;
+  spell_level: number;
+};
+
+type CharacterCantrip = {
+  id: number;
+  name: string;
+  description: string;
+  damage: string | null;
+  scaling: string | null;
+  usage_timing: string;
+};
+
+type AnyAbility = CharacterAction | CharacterSpell | CharacterCantrip;
+type AbilityType = "action" | "spell" | "cantrip";
 
 function formatUsageTiming(value: string | null) {
   if (!value) return "Action";
@@ -58,19 +81,29 @@ function formatUsageTiming(value: string | null) {
   return "Action";
 }
 
-function formatBonusAbility(value: string) {
-  return value === "none" ? "None" : value.toUpperCase();
-}
-
-function compareByName(a: CharacterAttack, b: CharacterAttack) {
-  return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
-}
-
 function formatRestoreOn(value: string | null) {
   if (!value) return "-";
   if (value === "short_rest") return "Short Rest";
   if (value === "long_rest") return "Long Rest";
   return value;
+}
+
+function formatAbilityMeta(item: AnyAbility, type: AbilityType): string {
+  const parts: string[] = [];
+  parts.push(`Use: ${formatUsageTiming(item.usage_timing)}`);
+  if (type === "spell") {
+    parts.push(`Level ${(item as CharacterSpell).spell_level}`);
+  }
+  if (item.damage) parts.push(`Dmg: ${item.damage}`);
+  if (item.scaling) parts.push(item.scaling);
+  if (type === "action") {
+    const action = item as CharacterAction;
+    if (action.charges != null) {
+      parts.push(`Charges: ${action.curr_charges ?? action.charges}/${action.charges}`);
+    }
+    if (action.restore_on) parts.push(`Restore: ${formatRestoreOn(action.restore_on)}`);
+  }
+  return parts.join(" | ");
 }
 
 const spellSlotLevels = [1, 2, 3, 4, 5, 6, 7, 8, 9];
@@ -87,10 +120,12 @@ function AbilitiesAndItemsContent() {
   const searchParams = useSearchParams();
   const characterId = searchParams.get("characterId");
   const [character, setCharacter] = useState<CharacterHeader | null>(null);
-  const [attacks, setAttacks] = useState<CharacterAttack[]>([]);
-  const [attacksLoading, setAttacksLoading] = useState(true);
-  const [attacksError, setAttacksError] = useState("");
-  const [deletingAttackId, setDeletingAttackId] = useState<number | null>(null);
+  const [actions, setActions] = useState<CharacterAction[]>([]);
+  const [spells, setSpells] = useState<CharacterSpell[]>([]);
+  const [cantrips, setCantrips] = useState<CharacterCantrip[]>([]);
+  const [abilitiesLoading, setAbilitiesLoading] = useState(true);
+  const [abilitiesError, setAbilitiesError] = useState("");
+  const [deletingAbility, setDeletingAbility] = useState<{ table: string; id: number } | null>(null);
   const [headerLoading, setHeaderLoading] = useState(true);
   const [headerError, setHeaderError] = useState("");
   const [spellSlots, setSpellSlots] = useState<Record<number, string>>(createDefaultSpellSlotsState);
@@ -107,15 +142,6 @@ function AbilitiesAndItemsContent() {
   const [feats, setFeats] = useState("");
   const [isSavingSheet, setIsSavingSheet] = useState(false);
   const [saveSheetError, setSaveSheetError] = useState("");
-  const actions = attacks
-    .filter((attack) => (attack.type ?? "action").toLowerCase() === "action")
-    .sort(compareByName);
-  const cantrips = attacks
-    .filter((attack) => (attack.type ?? "action").toLowerCase() === "cantrip")
-    .sort(compareByName);
-  const spells = attacks
-    .filter((attack) => (attack.type ?? "action").toLowerCase() === "spell")
-    .sort(compareByName);
 
   useEffect(() => {
     const loadCharacter = async () => {
@@ -160,21 +186,36 @@ function AbilitiesAndItemsContent() {
       } else {
         setCharacter(data);
 
-        setAttacksLoading(true);
-        setAttacksError("");
-        const { data: attacksData, error: attacksQueryError } = await supabase
-          .from("character_attacks")
-          .select("id, name, bonus_ability, usage_timing, restore_on, damage, type, description")
-          .eq("character_id", parsedCharacterId)
-          .order("id", { ascending: false });
+        setAbilitiesLoading(true);
+        setAbilitiesError("");
 
-        if (attacksQueryError) {
-          setAttacksError(attacksQueryError.message);
-          setAttacks([]);
+        const [actionsResult, spellsResult, cantripsResult] = await Promise.all([
+          supabase
+            .from("character_actions")
+            .select("id, name, description, damage, scaling, usage_timing, charges, curr_charges, restore_on")
+            .eq("character_id", parsedCharacterId)
+            .order("name", { ascending: true }),
+          supabase
+            .from("character_spells")
+            .select("id, name, description, damage, scaling, usage_timing, spell_level")
+            .eq("character_id", parsedCharacterId)
+            .order("name", { ascending: true }),
+          supabase
+            .from("character_cantrips")
+            .select("id, name, description, damage, scaling, usage_timing")
+            .eq("character_id", parsedCharacterId)
+            .order("name", { ascending: true }),
+        ]);
+
+        const firstError = actionsResult.error ?? spellsResult.error ?? cantripsResult.error;
+        if (firstError) {
+          setAbilitiesError(firstError.message);
         } else {
-          setAttacks(attacksData ?? []);
+          setActions((actionsResult.data ?? []) as CharacterAction[]);
+          setSpells((spellsResult.data ?? []) as CharacterSpell[]);
+          setCantrips((cantripsResult.data ?? []) as CharacterCantrip[]);
         }
-        setAttacksLoading(false);
+        setAbilitiesLoading(false);
 
         const { data: slotsData, error: slotsError } = await supabase
           .from("character_stats")
@@ -252,34 +293,34 @@ function AbilitiesAndItemsContent() {
     void loadCharacter();
   }, [characterId]);
 
-  const handleDeleteAttack = async (attackId: number) => {
-    if (!characterId) {
-      return;
-    }
-
+  const handleDeleteAbility = async (table: string, abilityId: number) => {
+    if (!characterId) return;
     const parsedCharacterId = Number.parseInt(characterId, 10);
+    if (Number.isNaN(parsedCharacterId)) return;
 
-    if (Number.isNaN(parsedCharacterId)) {
-      return;
-    }
-
-    setDeletingAttackId(attackId);
-    setAttacksError("");
+    setDeletingAbility({ table, id: abilityId });
+    setAbilitiesError("");
 
     const { error } = await supabase
-      .from("character_attacks")
+      .from(table)
       .delete()
-      .eq("id", attackId)
+      .eq("id", abilityId)
       .eq("character_id", parsedCharacterId);
 
     if (error) {
-      setAttacksError(error.message);
-      setDeletingAttackId(null);
+      setAbilitiesError(error.message);
+      setDeletingAbility(null);
       return;
     }
 
-    setAttacks((currentAttacks) => currentAttacks.filter((attack) => attack.id !== attackId));
-    setDeletingAttackId(null);
+    if (table === "character_actions") {
+      setActions((prev) => prev.filter((a) => a.id !== abilityId));
+    } else if (table === "character_spells") {
+      setSpells((prev) => prev.filter((s) => s.id !== abilityId));
+    } else {
+      setCantrips((prev) => prev.filter((c) => c.id !== abilityId));
+    }
+    setDeletingAbility(null);
   };
 
   const handleSaveAndExit = async () => {
@@ -357,6 +398,14 @@ function AbilitiesAndItemsContent() {
     router.push("/");
   };
 
+  const totalAbilities = actions.length + spells.length + cantrips.length;
+
+  const groups: { title: string; type: AbilityType; table: string; items: AnyAbility[] }[] = [
+    { title: "Actions", type: "action", table: "character_actions", items: actions },
+    { title: "Cantrips", type: "cantrip", table: "character_cantrips", items: cantrips },
+    { title: "Spells", type: "spell", table: "character_spells", items: spells },
+  ];
+
   return (
     <main className="min-h-screen bg-zinc-50 px-4 py-6 text-zinc-900">
       <div className="mx-auto flex min-h-[calc(100vh-3rem)] w-full max-w-5xl flex-col">
@@ -410,54 +459,43 @@ function AbilitiesAndItemsContent() {
           <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
             <h2 className="text-lg font-semibold tracking-tight text-zinc-900">Abilities</h2>
 
-            {attacksLoading ? (
+            {abilitiesLoading ? (
               <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-6 text-sm text-zinc-500">
                 Loading abilities...
               </div>
-            ) : attacksError ? (
+            ) : abilitiesError ? (
               <div className="mt-3 rounded-xl border border-red-200 bg-red-50 px-3 py-6 text-sm text-red-700">
-                {attacksError}
+                {abilitiesError}
               </div>
-            ) : attacks.length === 0 ? (
+            ) : totalAbilities === 0 ? (
               <div className="mt-3 rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-6 text-sm text-zinc-500">
                 Add abilities to build your list.
               </div>
             ) : (
               <div className="mt-3 space-y-4">
-                {[
-                  { title: "Actions", data: actions },
-                  { title: "Cantrips", data: cantrips },
-                  { title: "Spells", data: spells },
-                ].map((group) => (
+                {groups.map((group) => (
                   <section key={group.title}>
                     <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
                       {group.title}
                     </h3>
 
-                    {group.data.length === 0 ? (
+                    {group.items.length === 0 ? (
                       <div className="rounded-xl border border-dashed border-zinc-300 bg-zinc-50 px-3 py-3 text-sm text-zinc-500">
                         No {group.title.toLowerCase()} yet.
                       </div>
                     ) : (
                       <div className="space-y-2">
-                        {group.data.map((attack) => (
+                        {group.items.map((item) => (
                           <article
-                            key={attack.id}
+                            key={item.id}
                             className="grid grid-cols-[minmax(0,1fr)_72px] gap-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2.5"
                           >
                             <div className="min-w-0">
-                              <div className="flex items-center gap-2">
-                                <h4 className="truncate text-sm font-semibold text-zinc-900">
-                                  {attack.name}
-                                </h4>
-                                <span className="rounded-md bg-zinc-900 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white">
-                                  {(attack.type ?? "action").toUpperCase()}
-                                </span>
-                              </div>
+                              <h4 className="truncate text-sm font-semibold text-zinc-900">
+                                {item.name}
+                              </h4>
                               <p className="mt-1 text-xs text-zinc-600">
-                                Bonus: {formatBonusAbility(attack.bonus_ability)} | Damage: {attack.damage} |
-                                Use: {formatUsageTiming(attack.usage_timing)} | Restore:{" "}
-                                {formatRestoreOn(attack.restore_on)}
+                                {formatAbilityMeta(item, group.type)}
                               </p>
                             </div>
 
@@ -466,7 +504,7 @@ function AbilitiesAndItemsContent() {
                                 type="button"
                                 onClick={() =>
                                   router.push(
-                                    `/add-ability?characterId=${characterId ?? ""}&abilityId=${attack.id}`
+                                    `/edit/add-ability?characterId=${characterId ?? ""}&type=${group.type}&abilityId=${item.id}`
                                   )
                                 }
                                 className="w-16 rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-center text-xs font-semibold text-zinc-900 transition hover:bg-zinc-100"
@@ -475,11 +513,13 @@ function AbilitiesAndItemsContent() {
                               </button>
                               <button
                                 type="button"
-                                onClick={() => handleDeleteAttack(attack.id)}
-                                disabled={deletingAttackId === attack.id}
+                                onClick={() => handleDeleteAbility(group.table, item.id)}
+                                disabled={deletingAbility?.table === group.table && deletingAbility?.id === item.id}
                                 className="w-16 rounded-md border border-red-300 bg-white px-2.5 py-1 text-center text-xs font-semibold text-red-700 transition hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
                               >
-                                {deletingAttackId === attack.id ? "Deleting..." : "Delete"}
+                                {deletingAbility?.table === group.table && deletingAbility?.id === item.id
+                                  ? "..."
+                                  : "Delete"}
                               </button>
                             </div>
                           </article>
@@ -491,13 +531,27 @@ function AbilitiesAndItemsContent() {
               </div>
             )}
 
-            <div className="mt-4 flex justify-end">
+            <div className="mt-4 flex justify-end gap-2">
               <button
                 type="button"
-                onClick={() => router.push(`/add-ability?characterId=${characterId ?? ""}`)}
+                onClick={() => router.push(`/edit/add-ability?characterId=${characterId ?? ""}&type=action`)}
                 className="rounded-lg bg-zinc-900 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-700"
               >
-                Add New Ability
+                + Action
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push(`/edit/add-ability?characterId=${characterId ?? ""}&type=cantrip`)}
+                className="rounded-lg bg-zinc-900 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-700"
+              >
+                + Cantrip
+              </button>
+              <button
+                type="button"
+                onClick={() => router.push(`/edit/add-ability?characterId=${characterId ?? ""}&type=spell`)}
+                className="rounded-lg bg-zinc-900 px-3 py-2 text-sm font-semibold text-white transition hover:bg-zinc-700"
+              >
+                + Spell
               </button>
             </div>
           </section>
@@ -641,7 +695,7 @@ function AbilitiesAndItemsContent() {
         <div className="mt-auto flex items-center justify-between gap-3 pt-6">
           <button
             type="button"
-            onClick={() => router.push(`/stat-sheet?characterId=${characterId ?? ""}`)}
+            onClick={() => router.push(`/edit/stat-sheet?characterId=${characterId ?? ""}`)}
             className="rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-700"
           >
             Back

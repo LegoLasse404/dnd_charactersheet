@@ -171,7 +171,7 @@ export default function Home() {
     setCharacterClass("");
     setCharacterLevel("1");
     setActiveAction(null);
-    router.push(`/stat-sheet?characterId=${data.id}`);
+    router.push(`/edit/stat-sheet?characterId=${data.id}`);
   };
 
   const handleUpdatePassword = async (event: FormEvent<HTMLFormElement>) => {
@@ -246,14 +246,14 @@ export default function Home() {
                       <div className="flex gap-2">
                         <button
                           type="button"
-                          onClick={() => router.push(`/stat-sheet?characterId=${character.id}`)}
+                          onClick={() => router.push(`/edit/stat-sheet?characterId=${character.id}`)}
                           className="w-fit rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-900 transition hover:bg-zinc-100"
                         >
                           Edit
                         </button>
                         <button
                           type="button"
-                          onClick={() => router.push(`/use-character?characterId=${character.id}`)}
+                          onClick={() => router.push(`/use/stat-sheet?characterId=${character.id}`)}
                           className="w-fit rounded-md border border-green-400 bg-white px-2.5 py-1 text-xs font-semibold text-green-700 transition hover:bg-green-50"
                         >
                           Use

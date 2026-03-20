@@ -14,38 +14,34 @@ type CharacterHeader = {
   lv: number;
 };
 
-type AttackRow = {
-  id: number;
-  character_id: number;
-  name: string;
-  bonus_ability: string;
-  usage_timing: string;
-  restore_on: string | null;
-  damage: string;
-  type: string;
-  charge_info: string | null;
-  description: string;
-};
+type AbilityType = "action" | "spell" | "cantrip";
+
+function tableForType(type: AbilityType): string {
+  if (type === "action") return "character_actions";
+  if (type === "spell") return "character_spells";
+  return "character_cantrips";
+}
 
 function AddAbilityPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const characterId = searchParams.get("characterId");
   const abilityId = searchParams.get("abilityId");
+  const rawType = searchParams.get("type");
+  const abilityType: AbilityType =
+    rawType === "spell" ? "spell" : rawType === "cantrip" ? "cantrip" : "action";
+
   const [character, setCharacter] = useState<CharacterHeader | null>(null);
   const [headerLoading, setHeaderLoading] = useState(true);
   const [headerError, setHeaderError] = useState("");
   const [name, setName] = useState("");
-  const [bonusAbility, setBonusAbility] = useState("str");
+  const [scaling, setScaling] = useState("");
   const [usageTiming, setUsageTiming] = useState("action");
-  const [restoreOnMode, setRestoreOnMode] = useState<"short_rest" | "long_rest" | "another">(
-    "short_rest"
-  );
+  const [restoreOnMode, setRestoreOnMode] = useState<"short_rest" | "long_rest" | "another">("short_rest");
   const [restoreOnCustom, setRestoreOnCustom] = useState("");
   const [damage, setDamage] = useState("");
-  const [type, setType] = useState("action");
-  const [chargeMode, setChargeMode] = useState<"finite" | "infinite">("finite");
-  const [chargeCount, setChargeCount] = useState("");
+  const [spellLevel, setSpellLevel] = useState("1");
+  const [charges, setCharges] = useState("");
   const [description, setDescription] = useState("");
   const [isEditMode, setIsEditMode] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -103,39 +99,38 @@ function AddAbilityPageContent() {
             return;
           }
 
-          const { data: attackData, error: attackError } = await supabase
-            .from("character_attacks")
-            .select(
-              "id, character_id, name, bonus_ability, usage_timing, restore_on, damage, type, charge_info, description"
-            )
+          const { data: abilityData, error: abilityError } = await supabase
+            .from(tableForType(abilityType))
+            .select("*")
             .eq("id", parsedAbilityId)
             .eq("character_id", parsedCharacterId)
-            .single<AttackRow>();
+            .single();
 
-          if (attackError) {
-            setHeaderError(attackError.message);
+          if (abilityError) {
+            setHeaderError(abilityError.message);
           } else {
             setIsEditMode(true);
-            setName(attackData.name);
-            setBonusAbility(attackData.bonus_ability);
-            setUsageTiming(attackData.usage_timing ?? "action");
-            if (attackData.restore_on === "short_rest" || attackData.restore_on === "long_rest") {
-              setRestoreOnMode(attackData.restore_on);
-              setRestoreOnCustom("");
-            } else {
-              setRestoreOnMode("another");
-              setRestoreOnCustom(attackData.restore_on ?? "");
+            setName(abilityData.name ?? "");
+            setScaling(abilityData.scaling ?? "");
+            setUsageTiming(abilityData.usage_timing ?? "action");
+            setDamage(abilityData.damage ?? "");
+            setDescription(abilityData.description ?? "");
+
+            if (abilityType === "spell") {
+              setSpellLevel(String(abilityData.spell_level ?? 1));
             }
-            setDamage(attackData.damage);
-            setType(attackData.type);
-            if ((attackData.charge_info ?? "").toLowerCase() === "infinite") {
-              setChargeMode("infinite");
-              setChargeCount("");
-            } else {
-              setChargeMode("finite");
-              setChargeCount(attackData.charge_info ?? "");
+
+            if (abilityType === "action") {
+              const restoreOn = abilityData.restore_on as string | null;
+              if (restoreOn === "short_rest" || restoreOn === "long_rest") {
+                setRestoreOnMode(restoreOn);
+                setRestoreOnCustom("");
+              } else {
+                setRestoreOnMode("another");
+                setRestoreOnCustom(restoreOn ?? "");
+              }
+              setCharges(abilityData.charges != null ? String(abilityData.charges) : "");
             }
-            setDescription(attackData.description ?? "");
           }
         }
       }
@@ -144,7 +139,7 @@ function AddAbilityPageContent() {
     };
 
     void loadCharacter();
-  }, [abilityId, characterId]);
+  }, [abilityId, characterId, abilityType]);
 
   const handleSave = async () => {
     if (!characterId) {
@@ -164,42 +159,56 @@ function AddAbilityPageContent() {
       return;
     }
 
-    if (!damage.trim()) {
-      setSaveError("Damage is required.");
-      return;
-    }
-
     let restoreOnToSave: string | null = null;
+    let chargesToSave: number | null = null;
 
-    if (type === "action") {
-      restoreOnToSave = restoreOnMode === "another" ? restoreOnCustom.trim() : restoreOnMode;
+    if (abilityType === "action") {
+      restoreOnToSave =
+        restoreOnMode === "another" ? (restoreOnCustom.trim() || null) : restoreOnMode;
 
-      if (!restoreOnToSave) {
-        setSaveError("Restore on is required for actions.");
-        return;
-      }
-    }
-
-    let chargeInfoToSave: string | null = null;
-
-    if (type === "action") {
-      if (chargeMode === "infinite") {
-        chargeInfoToSave = "infinite";
-      } else {
-        const parsedChargeCount = Number.parseInt(chargeCount, 10);
-
-        if (!Number.isInteger(parsedChargeCount) || parsedChargeCount < 1) {
-          setSaveError("Charge information must be an integer or infinite for actions.");
+      if (charges.trim()) {
+        const parsed = Number.parseInt(charges, 10);
+        if (!Number.isInteger(parsed) || parsed < 1) {
+          setSaveError("Charges must be a positive integer.");
           return;
         }
-
-        chargeInfoToSave = String(parsedChargeCount);
+        chargesToSave = parsed;
       }
+    }
+
+    let spellLevelToSave: number | null = null;
+
+    if (abilityType === "spell") {
+      const parsed = Number.parseInt(spellLevel, 10);
+      if (!Number.isInteger(parsed) || parsed < 1 || parsed > 9) {
+        setSaveError("Spell level must be between 1 and 9.");
+        return;
+      }
+      spellLevelToSave = parsed;
     }
 
     setIsSaving(true);
     setSaveError("");
 
+    const basePayload: Record<string, unknown> = {
+      name: name.trim(),
+      description: description.trim(),
+      damage: damage.trim() || null,
+      scaling: scaling.trim() || null,
+      usage_timing: usageTiming,
+    };
+
+    if (abilityType === "action") {
+      basePayload.restore_on = restoreOnToSave;
+      basePayload.charges = chargesToSave;
+      basePayload.curr_charges = chargesToSave;
+    }
+
+    if (abilityType === "spell") {
+      basePayload.spell_level = spellLevelToSave;
+    }
+
+    const table = tableForType(abilityType);
     let error: { message: string } | null = null;
 
     if (abilityId) {
@@ -212,33 +221,16 @@ function AddAbilityPageContent() {
       }
 
       const { error: updateError } = await supabase
-        .from("character_attacks")
-        .update({
-          name: name.trim(),
-          bonus_ability: bonusAbility,
-          usage_timing: usageTiming,
-          restore_on: restoreOnToSave,
-          damage: damage.trim(),
-          type,
-          charge_info: chargeInfoToSave,
-          description: description.trim(),
-        })
+        .from(table)
+        .update(basePayload)
         .eq("id", parsedAbilityId)
         .eq("character_id", parsedCharacterId);
 
       error = updateError;
     } else {
-      const { error: insertError } = await supabase.from("character_attacks").insert({
-        character_id: parsedCharacterId,
-        name: name.trim(),
-        bonus_ability: bonusAbility,
-        usage_timing: usageTiming,
-        restore_on: restoreOnToSave,
-        damage: damage.trim(),
-        type,
-        charge_info: chargeInfoToSave,
-        description: description.trim(),
-      });
+      const { error: insertError } = await supabase
+        .from(table)
+        .insert({ ...basePayload, character_id: parsedCharacterId });
 
       error = insertError;
     }
@@ -249,8 +241,10 @@ function AddAbilityPageContent() {
       return;
     }
 
-    router.push(`/abilities-and-items?characterId=${parsedCharacterId}`);
+    router.push(`/edit/abilities-and-items?characterId=${parsedCharacterId}`);
   };
+
+  const typeLabel = abilityType === "action" ? "Action" : abilityType === "spell" ? "Spell" : "Cantrip";
 
   return (
     <main className="min-h-screen bg-zinc-50 px-4 py-6 text-zinc-900">
@@ -273,54 +267,24 @@ function AddAbilityPageContent() {
 
         <section className="mt-6 rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
           <h2 className="text-lg font-semibold tracking-tight text-zinc-900">
-            {isEditMode ? "Edit Ability" : "New Ability"}
+            {isEditMode ? `Edit ${typeLabel}` : `New ${typeLabel}`}
           </h2>
           <div className="mt-4 grid gap-4 md:grid-cols-2">
             <label className="space-y-1.5 md:col-span-2">
-              <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Type
-              </span>
-              <select
-                value={type}
-                onChange={(event) => setType(event.target.value)}
-                className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900 outline-none ring-zinc-900 focus:ring-2"
-              >
-                <option value="cantrip">Cantrip</option>
-                <option value="spell">Spell</option>
-                <option value="action">Action</option>
-              </select>
-            </label>
-
-            <label className="space-y-1.5">
-              <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Name
-              </span>
+              <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">Name</span>
               <input
                 type="text"
                 value={name}
                 onChange={(event) => setName(event.target.value)}
-                placeholder="Fire Bolt"
+                placeholder={
+                  abilityType === "spell"
+                    ? "Fireball"
+                    : abilityType === "cantrip"
+                      ? "Fire Bolt"
+                      : "Second Wind"
+                }
                 className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900 outline-none ring-zinc-900 placeholder:text-zinc-400 focus:ring-2"
               />
-            </label>
-
-            <label className="space-y-1.5">
-              <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                Bonus
-              </span>
-              <select
-                value={bonusAbility}
-                onChange={(event) => setBonusAbility(event.target.value)}
-                className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900 outline-none ring-zinc-900 focus:ring-2"
-              >
-                <option value="none">None</option>
-                <option value="str">STR</option>
-                <option value="dex">DEX</option>
-                <option value="con">CON</option>
-                <option value="int">INT</option>
-                <option value="wis">WIS</option>
-                <option value="cha">CHA</option>
-              </select>
             </label>
 
             <label className="space-y-1.5">
@@ -347,11 +311,43 @@ function AddAbilityPageContent() {
                 value={damage}
                 onChange={(event) => setDamage(event.target.value)}
                 placeholder="1d10 fire"
-                className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900 outline-none ring-zinc-900 placeholder:text-zinc-400 focus:ring-2 disabled:cursor-not-allowed disabled:opacity-60"
+                className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900 outline-none ring-zinc-900 placeholder:text-zinc-400 focus:ring-2"
               />
             </label>
 
-            {type === "action" ? (
+            <label className="space-y-1.5">
+              <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                Scaling / DC
+              </span>
+              <input
+                type="text"
+                value={scaling}
+                onChange={(event) => setScaling(event.target.value)}
+                placeholder="DC 15 CON save"
+                className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900 outline-none ring-zinc-900 placeholder:text-zinc-400 focus:ring-2"
+              />
+            </label>
+
+            {abilityType === "spell" && (
+              <label className="space-y-1.5">
+                <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  Spell Level
+                </span>
+                <select
+                  value={spellLevel}
+                  onChange={(event) => setSpellLevel(event.target.value)}
+                  className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900 outline-none ring-zinc-900 focus:ring-2"
+                >
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((l) => (
+                    <option key={l} value={l}>
+                      Level {l}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+
+            {abilityType === "action" && (
               <>
                 <label className="space-y-1.5">
                   <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -376,50 +372,37 @@ function AddAbilityPageContent() {
                   </select>
                 </label>
 
+                {restoreOnMode === "another" && (
+                  <label className="space-y-1.5">
+                    <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                      Restore On (Custom)
+                    </span>
+                    <input
+                      type="text"
+                      value={restoreOnCustom}
+                      onChange={(event) => setRestoreOnCustom(event.target.value)}
+                      placeholder="e.g. Dawn"
+                      className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900 outline-none ring-zinc-900 placeholder:text-zinc-400 focus:ring-2"
+                    />
+                  </label>
+                )}
+
                 <label className="space-y-1.5">
                   <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    Restore On (Custom)
+                    Charges (optional)
                   </span>
                   <input
-                    type="text"
-                    value={restoreOnCustom}
-                    onChange={(event) => setRestoreOnCustom(event.target.value)}
-                    disabled={restoreOnMode !== "another"}
-                    placeholder={restoreOnMode === "another" ? "e.g. Dawn" : "Not used"}
-                    className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900 outline-none ring-zinc-900 placeholder:text-zinc-400 focus:ring-2 disabled:cursor-not-allowed disabled:opacity-60"
+                    type="number"
+                    min="1"
+                    step="1"
+                    value={charges}
+                    onChange={(event) => setCharges(event.target.value)}
+                    placeholder="Leave empty if unlimited"
+                    className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900 outline-none ring-zinc-900 placeholder:text-zinc-400 focus:ring-2"
                   />
                 </label>
-
-                <label className="space-y-1.5 md:col-span-2">
-                  <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    Charge Information
-                  </span>
-                  <div className="grid gap-2 sm:grid-cols-[160px_1fr]">
-                    <select
-                      value={chargeMode}
-                      onChange={(event) =>
-                        setChargeMode(event.target.value === "infinite" ? "infinite" : "finite")
-                      }
-                      className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900 outline-none ring-zinc-900 focus:ring-2"
-                    >
-                      <option value="finite">Integer</option>
-                      <option value="infinite">Infinite</option>
-                    </select>
-
-                    <input
-                      type="number"
-                      min="1"
-                      step="1"
-                      value={chargeCount}
-                      onChange={(event) => setChargeCount(event.target.value)}
-                      disabled={chargeMode === "infinite"}
-                      placeholder={chargeMode === "infinite" ? "Not used" : "Charge count"}
-                      className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm font-medium text-zinc-900 outline-none ring-zinc-900 placeholder:text-zinc-400 focus:ring-2 disabled:cursor-not-allowed disabled:opacity-60"
-                    />
-                  </div>
-                </label>
               </>
-            ) : null}
+            )}
 
             <label className="space-y-1.5 md:col-span-2">
               <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -441,7 +424,7 @@ function AddAbilityPageContent() {
         <div className="mt-auto flex items-center justify-between gap-3 pt-6">
           <button
             type="button"
-            onClick={() => router.push(`/abilities-and-items?characterId=${characterId ?? ""}`)}
+            onClick={() => router.push(`/edit/abilities-and-items?characterId=${characterId ?? ""}`)}
             className="rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-700"
           >
             Back

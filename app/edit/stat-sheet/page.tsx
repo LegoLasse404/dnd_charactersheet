@@ -7,9 +7,10 @@ import { supabase } from "@/lib/supabase/client";
 export const dynamic = 'force-dynamic';
 
 type AbilityKey = "str" | "dex" | "con" | "int" | "wis" | "cha";
-
 type AbilityScores = Record<AbilityKey, number>;
-type SkillProficiencies = Record<string, boolean>;
+type SkillLevel = 0 | 1 | 2; // 0=none, 1=proficiency, 2=expertise
+type SkillLevels = Record<string, SkillLevel>;
+type SaveProficiencies = Record<string, boolean>;
 
 type DerivedEntry = {
   name: string;
@@ -47,12 +48,7 @@ const abilityLabels: Array<{ key: AbilityKey; label: string; name: string }> = [
 ];
 
 const defaultScores: AbilityScores = {
-  str: 10,
-  dex: 10,
-  con: 10,
-  int: 10,
-  wis: 10,
-  cha: 10,
+  str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10,
 };
 
 const savingThrowEntries: DerivedEntry[] = [
@@ -107,7 +103,7 @@ const savingThrowColumnByName: Record<string, string> = {
   Charisma: "prof_save_cha",
 };
 
-const skillColumnByName: Record<string, string> = {
+const skillProfColumnByName: Record<string, string> = {
   Acrobatics: "prof_skill_acrobatics",
   "Animal Handling": "prof_skill_animal_handling",
   Arcana: "prof_skill_arcana",
@@ -128,18 +124,74 @@ const skillColumnByName: Record<string, string> = {
   Survival: "prof_skill_survival",
 };
 
-function buildDefaultSkillProficiencies() {
-  return skillEntries.reduce<SkillProficiencies>((accumulator, skill) => {
-    accumulator[skill.name] = false;
-    return accumulator;
+const skillExpertiseColumnByName: Record<string, string> = {
+  Acrobatics: "expertise_skill_acrobatics",
+  "Animal Handling": "expertise_skill_animal_handling",
+  Arcana: "expertise_skill_arcana",
+  Athletics: "expertise_skill_athletics",
+  Deception: "expertise_skill_deception",
+  History: "expertise_skill_history",
+  Insight: "expertise_skill_insight",
+  Intimidation: "expertise_skill_intimidation",
+  Investigation: "expertise_skill_investigation",
+  Medicine: "expertise_skill_medicine",
+  Nature: "expertise_skill_nature",
+  Perception: "expertise_skill_perception",
+  Performance: "expertise_skill_performance",
+  Persuasion: "expertise_skill_persuasion",
+  Religion: "expertise_skill_religion",
+  "Sleight of Hand": "expertise_skill_sleight_of_hand",
+  Stealth: "expertise_skill_stealth",
+  Survival: "expertise_skill_survival",
+};
+
+function buildDefaultSkillLevels(): SkillLevels {
+  return skillEntries.reduce<SkillLevels>((acc, skill) => {
+    acc[skill.name] = 0;
+    return acc;
   }, {});
 }
 
-function buildDefaultSavingThrowProficiencies() {
-  return savingThrowEntries.reduce<SkillProficiencies>((accumulator, savingThrow) => {
-    accumulator[savingThrow.name] = false;
-    return accumulator;
+function buildDefaultSaveProficiencies(): SaveProficiencies {
+  return savingThrowEntries.reduce<SaveProficiencies>((acc, st) => {
+    acc[st.name] = false;
+    return acc;
   }, {});
+}
+
+function SkillCheckbox({ level, onClick }: { level: SkillLevel; onClick: () => void }) {
+  if (level === 2) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex h-4 w-4 items-center justify-center rounded-sm border border-amber-500 bg-amber-500 text-[10px] font-bold leading-none text-white transition"
+        aria-label="Expertise — click to cycle"
+      >
+        ✦
+      </button>
+    );
+  }
+  if (level === 1) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="flex h-4 w-4 items-center justify-center rounded-sm border border-zinc-900 bg-zinc-900 text-[10px] font-bold leading-none text-white transition"
+        aria-label="Proficiency — click to cycle"
+      >
+        ✓
+      </button>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex h-4 w-4 items-center justify-center rounded-sm border border-zinc-400 bg-white transition"
+      aria-label="None — click to cycle"
+    />
+  );
 }
 
 function StatSheetPageContent() {
@@ -148,12 +200,8 @@ function StatSheetPageContent() {
   const characterId = searchParams.get("characterId");
   const [scores, setScores] = useState<AbilityScores>(defaultScores);
   const [character, setCharacter] = useState<CharacterHeader | null>(null);
-  const [skillProficiencies, setSkillProficiencies] = useState<SkillProficiencies>(
-    buildDefaultSkillProficiencies
-  );
-  const [savingThrowProficiencies, setSavingThrowProficiencies] = useState<SkillProficiencies>(
-    buildDefaultSavingThrowProficiencies
-  );
+  const [skillLevels, setSkillLevels] = useState<SkillLevels>(buildDefaultSkillLevels);
+  const [saveProficiencies, setSaveProficiencies] = useState<SaveProficiencies>(buildDefaultSaveProficiencies);
   const [headerLoading, setHeaderLoading] = useState(true);
   const [headerError, setHeaderError] = useState("");
   const [saveError, setSaveError] = useState("");
@@ -162,9 +210,10 @@ function StatSheetPageContent() {
   const [speedFeet, setSpeedFeet] = useState("30");
   const [maxHp, setMaxHp] = useState("");
   const [hitDiceTotal, setHitDiceTotal] = useState("");
-  const modifiers = abilityLabels.reduce<Record<AbilityKey, number>>((accumulator, ability) => {
-    accumulator[ability.key] = calculateModifier(scores[ability.key]);
-    return accumulator;
+
+  const modifiers = abilityLabels.reduce<Record<AbilityKey, number>>((acc, ability) => {
+    acc[ability.key] = calculateModifier(scores[ability.key]);
+    return acc;
   }, {} as Record<AbilityKey, number>);
   const proficiencyBonus = calculateProficiencyBonus(character?.lv ?? 1);
   const initiativeModifier = modifiers.dex;
@@ -183,10 +232,7 @@ function StatSheetPageContent() {
       setHeaderLoading(true);
       setHeaderError("");
 
-      const {
-        data: { user },
-        error: userError,
-      } = await supabase.auth.getUser();
+      const { data: { user }, error: userError } = await supabase.auth.getUser();
 
       if (userError || !user) {
         setHeaderError(userError?.message ?? "You must be signed in to view this character.");
@@ -218,7 +264,10 @@ function StatSheetPageContent() {
         const { data: statData, error: statsError } = await supabase
           .from("character_stats")
           .select(
-            "str, dex, con, int, wis, cha, ac, speed, hp_max, hit_dice, prof_save_str, prof_save_dex, prof_save_con, prof_save_int, prof_save_wis, prof_save_cha, prof_skill_acrobatics, prof_skill_animal_handling, prof_skill_arcana, prof_skill_athletics, prof_skill_deception, prof_skill_history, prof_skill_insight, prof_skill_intimidation, prof_skill_investigation, prof_skill_medicine, prof_skill_nature, prof_skill_perception, prof_skill_performance, prof_skill_persuasion, prof_skill_religion, prof_skill_sleight_of_hand, prof_skill_stealth, prof_skill_survival"
+            "str, dex, con, int, wis, cha, ac, speed, hp_max, hit_dice, " +
+            "prof_save_str, prof_save_dex, prof_save_con, prof_save_int, prof_save_wis, prof_save_cha, " +
+            "prof_skill_acrobatics, prof_skill_animal_handling, prof_skill_arcana, prof_skill_athletics, prof_skill_deception, prof_skill_history, prof_skill_insight, prof_skill_intimidation, prof_skill_investigation, prof_skill_medicine, prof_skill_nature, prof_skill_perception, prof_skill_performance, prof_skill_persuasion, prof_skill_religion, prof_skill_sleight_of_hand, prof_skill_stealth, prof_skill_survival, " +
+            "expertise_skill_acrobatics, expertise_skill_animal_handling, expertise_skill_arcana, expertise_skill_athletics, expertise_skill_deception, expertise_skill_history, expertise_skill_insight, expertise_skill_intimidation, expertise_skill_investigation, expertise_skill_medicine, expertise_skill_nature, expertise_skill_perception, expertise_skill_performance, expertise_skill_persuasion, expertise_skill_religion, expertise_skill_sleight_of_hand, expertise_skill_stealth, expertise_skill_survival"
           )
           .eq("character_id", parsedCharacterId)
           .maybeSingle<CharacterStatsRow>();
@@ -226,44 +275,40 @@ function StatSheetPageContent() {
         if (statsError) {
           setHeaderError(statsError.message);
         } else if (statData) {
-          setScores({
-            str: statData.str,
-            dex: statData.dex,
-            con: statData.con,
-            int: statData.int,
-            wis: statData.wis,
-            cha: statData.cha,
-          });
+          setScores({ str: statData.str, dex: statData.dex, con: statData.con, int: statData.int, wis: statData.wis, cha: statData.cha });
           setArmorClass(String(statData.ac));
           setSpeedFeet(String(statData.speed));
           setMaxHp(String(statData.hp_max));
           setHitDiceTotal(statData.hit_dice);
 
-          const nextSavingThrowProficiencies = buildDefaultSavingThrowProficiencies();
+          const nextSaveProficiencies = buildDefaultSaveProficiencies();
           for (const [name, column] of Object.entries(savingThrowColumnByName)) {
             const value = statData[column];
-            if (typeof value === "boolean") {
-              nextSavingThrowProficiencies[name] = value;
-            }
+            if (typeof value === "boolean") nextSaveProficiencies[name] = value;
           }
-          setSavingThrowProficiencies(nextSavingThrowProficiencies);
+          setSaveProficiencies(nextSaveProficiencies);
 
-          const nextSkillProficiencies = buildDefaultSkillProficiencies();
-          for (const [name, column] of Object.entries(skillColumnByName)) {
-            const value = statData[column];
-            if (typeof value === "boolean") {
-              nextSkillProficiencies[name] = value;
+          const nextSkillLevels = buildDefaultSkillLevels();
+          for (const name of Object.keys(skillProfColumnByName)) {
+            const prof = statData[skillProfColumnByName[name]];
+            const expertise = statData[skillExpertiseColumnByName[name]];
+            if (expertise === true) {
+              nextSkillLevels[name] = 2;
+            } else if (prof === true) {
+              nextSkillLevels[name] = 1;
+            } else {
+              nextSkillLevels[name] = 0;
             }
           }
-          setSkillProficiencies(nextSkillProficiencies);
+          setSkillLevels(nextSkillLevels);
         } else {
           setScores(defaultScores);
           setArmorClass("10");
           setSpeedFeet("30");
           setMaxHp("");
           setHitDiceTotal("");
-          setSavingThrowProficiencies(buildDefaultSavingThrowProficiencies());
-          setSkillProficiencies(buildDefaultSkillProficiencies());
+          setSaveProficiencies(buildDefaultSaveProficiencies());
+          setSkillLevels(buildDefaultSkillLevels());
         }
       }
 
@@ -275,74 +320,52 @@ function StatSheetPageContent() {
 
   const handleScoreChange = (key: AbilityKey) => (event: ChangeEvent<HTMLInputElement>) => {
     const nextValue = Number.parseInt(event.target.value, 10);
+    setScores((current) => ({ ...current, [key]: Number.isNaN(nextValue) ? 0 : nextValue }));
+  };
 
-    setScores((currentScores) => ({
-      ...currentScores,
-      [key]: Number.isNaN(nextValue) ? 0 : nextValue,
+  const handleSkillCycle = (skillName: string) => {
+    setSkillLevels((current) => ({
+      ...current,
+      [skillName]: (((current[skillName] ?? 0) + 1) % 3) as SkillLevel,
     }));
   };
 
-  const handleSkillProficiencyToggle = (skillName: string) => {
-    setSkillProficiencies((current) => ({
-      ...current,
-      [skillName]: !current[skillName],
-    }));
-  };
-
-  const handleSavingThrowProficiencyToggle = (savingThrowName: string) => {
-    setSavingThrowProficiencies((current) => ({
-      ...current,
-      [savingThrowName]: !current[savingThrowName],
-    }));
+  const handleSavingThrowToggle = (name: string) => {
+    setSaveProficiencies((current) => ({ ...current, [name]: !current[name] }));
   };
 
   const handleNext = async () => {
-    if (!characterId) {
-      setSaveError("Missing character id.");
-      return;
-    }
+    if (!characterId) { setSaveError("Missing character id."); return; }
 
     const parsedCharacterId = Number.parseInt(characterId, 10);
-
-    if (Number.isNaN(parsedCharacterId)) {
-      setSaveError("Invalid character id.");
-      return;
-    }
+    if (Number.isNaN(parsedCharacterId)) { setSaveError("Invalid character id."); return; }
 
     setIsSavingAndContinuing(true);
     setSaveError("");
 
     const payload: Record<string, boolean | number | string> = {
       character_id: parsedCharacterId,
-      str: scores.str,
-      dex: scores.dex,
-      con: scores.con,
-      int: scores.int,
-      wis: scores.wis,
-      cha: scores.cha,
+      str: scores.str, dex: scores.dex, con: scores.con,
+      int: scores.int, wis: scores.wis, cha: scores.cha,
       ac: Number.parseInt(armorClass, 10) || 10,
       speed: Number.parseInt(speedFeet, 10) || 30,
       hp_max: Number.parseInt(maxHp, 10) || 0,
       hit_dice: hitDiceTotal.trim(),
     };
 
-    for (const [name, isProficient] of Object.entries(savingThrowProficiencies)) {
+    for (const [name, isProficient] of Object.entries(saveProficiencies)) {
       const column = savingThrowColumnByName[name];
-      if (column) {
-        payload[column] = isProficient;
-      }
+      if (column) payload[column] = isProficient;
     }
 
-    for (const [name, isProficient] of Object.entries(skillProficiencies)) {
-      const column = skillColumnByName[name];
-      if (column) {
-        payload[column] = isProficient;
-      }
+    for (const [name, level] of Object.entries(skillLevels)) {
+      const profColumn = skillProfColumnByName[name];
+      const expertiseColumn = skillExpertiseColumnByName[name];
+      if (profColumn) payload[profColumn] = level >= 1;
+      if (expertiseColumn) payload[expertiseColumn] = level === 2;
     }
 
-    const { error } = await supabase.from("character_stats").upsert(payload, {
-      onConflict: "character_id",
-    });
+    const { error } = await supabase.from("character_stats").upsert(payload, { onConflict: "character_id" });
 
     if (error) {
       setSaveError(error.message);
@@ -350,7 +373,7 @@ function StatSheetPageContent() {
       return;
     }
 
-    router.push(`/abilities-and-items?characterId=${parsedCharacterId}`);
+    router.push(`/edit/abilities-and-items?characterId=${parsedCharacterId}`);
   };
 
   return (
@@ -396,9 +419,7 @@ function StatSheetPageContent() {
                     </div>
 
                     <div className="mt-2 grid gap-1">
-                      <label htmlFor={ability.key} className="sr-only">
-                        {ability.name}
-                      </label>
+                      <label htmlFor={ability.key} className="sr-only">{ability.name}</label>
                       <input
                         id={ability.key}
                         type="number"
@@ -410,9 +431,7 @@ function StatSheetPageContent() {
                     </div>
 
                     <div className="absolute bottom-[-8px] left-1/2 flex h-9 w-16 -translate-x-1/2 items-center justify-center rounded-full border-2 border-zinc-900 bg-white shadow-sm">
-                      <p className="text-lg font-semibold text-zinc-900">
-                        {formatModifier(modifier)}
-                      </p>
+                      <p className="text-lg font-semibold text-zinc-900">{formatModifier(modifier)}</p>
                     </div>
                   </article>
                 );
@@ -425,9 +444,7 @@ function StatSheetPageContent() {
               <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
                 <div className="grid gap-2 sm:grid-cols-3">
                   <label className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                    <span className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                      Armor Class
-                    </span>
+                    <span className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Armor Class</span>
                     <input
                       type="number"
                       inputMode="numeric"
@@ -438,18 +455,12 @@ function StatSheetPageContent() {
                   </label>
 
                   <label className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                    <span className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                      Initiative
-                    </span>
-                    <p className="mt-1 text-base font-semibold text-zinc-900">
-                      {formatModifier(initiativeModifier)}
-                    </p>
+                    <span className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Initiative</span>
+                    <p className="mt-1 text-base font-semibold text-zinc-900">{formatModifier(initiativeModifier)}</p>
                   </label>
 
                   <label className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                    <span className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                      Speed
-                    </span>
+                    <span className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Speed</span>
                     <div className="mt-1 flex items-center gap-1">
                       <input
                         type="number"
@@ -465,9 +476,7 @@ function StatSheetPageContent() {
 
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   <label className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                    <span className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                      Hit Point Maximum
-                    </span>
+                    <span className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Hit Point Maximum</span>
                     <input
                       type="number"
                       inputMode="numeric"
@@ -478,9 +487,7 @@ function StatSheetPageContent() {
                   </label>
 
                   <label className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                    <span className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                      Hit Dice
-                    </span>
+                    <span className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Hit Dice</span>
                     <input
                       type="text"
                       value={hitDiceTotal}
@@ -492,25 +499,17 @@ function StatSheetPageContent() {
                 </div>
 
                 <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
-                  <span className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                    Proficiency Bonus
-                  </span>
-                  <p className="mt-1 text-base font-semibold text-zinc-900">
-                    {formatModifier(proficiencyBonus)}
-                  </p>
+                  <span className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Proficiency Bonus</span>
+                  <p className="mt-1 text-base font-semibold text-zinc-900">{formatModifier(proficiencyBonus)}</p>
                 </div>
-
               </section>
 
               <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
-                <h2 className="text-lg font-semibold tracking-tight text-zinc-900">
-                  Saving Throws
-                </h2>
+                <h2 className="text-lg font-semibold tracking-tight text-zinc-900">Saving Throws</h2>
                 <div className="mt-3 space-y-2">
                   {savingThrowEntries.map((entry) => {
-                    const isProficient = savingThrowProficiencies[entry.name] ?? false;
-                    const savingThrowTotal =
-                      modifiers[entry.ability] + (isProficient ? proficiencyBonus : 0);
+                    const isProficient = saveProficiencies[entry.name] ?? false;
+                    const total = modifiers[entry.ability] + (isProficient ? proficiencyBonus : 0);
 
                     return (
                       <div
@@ -522,7 +521,7 @@ function StatSheetPageContent() {
                             <input
                               type="checkbox"
                               checked={isProficient}
-                              onChange={() => handleSavingThrowProficiencyToggle(entry.name)}
+                              onChange={() => handleSavingThrowToggle(entry.name)}
                               className="peer sr-only"
                               aria-label={`Toggle proficiency for ${entry.name} saving throw`}
                             />
@@ -533,14 +532,10 @@ function StatSheetPageContent() {
 
                           <div>
                             <p className="text-sm font-medium text-zinc-900">{entry.name}</p>
-                            <p className="text-[10px] uppercase tracking-wide text-zinc-500">
-                              {entry.ability}
-                            </p>
+                            <p className="text-[10px] uppercase tracking-wide text-zinc-500">{entry.ability}</p>
                           </div>
                         </div>
-                        <span className="text-base font-semibold text-zinc-900">
-                          {formatModifier(savingThrowTotal)}
-                        </span>
+                        <span className="text-base font-semibold text-zinc-900">{formatModifier(total)}</span>
                       </div>
                     );
                   })}
@@ -550,13 +545,15 @@ function StatSheetPageContent() {
 
             <section className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-sm">
               <h2 className="text-lg font-semibold tracking-tight text-zinc-900">Skills</h2>
+              <p className="mt-1 text-[10px] uppercase tracking-wide text-zinc-400">Click to cycle: none → prof → expertise</p>
               <div className="mt-3 grid gap-3 xl:grid-cols-2">
                 {[firstSkillColumn, secondSkillColumn].map((skillColumn, columnIndex) => (
                   <div key={columnIndex} className="space-y-2">
                     {skillColumn.map((entry) => {
-                      const isProficient = skillProficiencies[entry.name] ?? false;
+                      const level = skillLevels[entry.name] ?? 0;
                       const skillTotal =
-                        modifiers[entry.ability] + (isProficient ? proficiencyBonus : 0);
+                        modifiers[entry.ability] +
+                        (level === 2 ? proficiencyBonus * 2 : level === 1 ? proficiencyBonus : 0);
 
                       return (
                         <div
@@ -564,24 +561,10 @@ function StatSheetPageContent() {
                           className="flex items-center justify-between gap-3 rounded-lg bg-zinc-50 px-3 py-2"
                         >
                           <div className="flex items-center gap-2">
-                            <label className="inline-flex cursor-pointer items-center">
-                              <input
-                                type="checkbox"
-                                checked={isProficient}
-                                onChange={() => handleSkillProficiencyToggle(entry.name)}
-                                className="peer sr-only"
-                                aria-label={`Toggle proficiency for ${entry.name}`}
-                              />
-                              <span className="flex h-4 w-4 items-center justify-center rounded-sm border border-zinc-400 bg-white text-[10px] font-bold leading-none text-zinc-900 transition peer-checked:border-zinc-900 peer-checked:bg-zinc-900 peer-checked:text-white">
-                                {isProficient ? "✓" : ""}
-                              </span>
-                            </label>
-
+                            <SkillCheckbox level={level} onClick={() => handleSkillCycle(entry.name)} />
                             <div>
                               <p className="text-sm font-medium text-zinc-900">{entry.name}</p>
-                              <p className="text-[10px] uppercase tracking-wide text-zinc-500">
-                                {entry.ability}
-                              </p>
+                              <p className="text-[10px] uppercase tracking-wide text-zinc-500">{entry.ability}</p>
                             </div>
                           </div>
                           <span className="text-base font-semibold text-zinc-900">
