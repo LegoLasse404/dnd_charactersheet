@@ -24,6 +24,15 @@ type CharacterSpellSlots = {
   spell_slots_7: number;
   spell_slots_8: number;
   spell_slots_9: number;
+  current_spell_slots_1: number;
+  current_spell_slots_2: number;
+  current_spell_slots_3: number;
+  current_spell_slots_4: number;
+  current_spell_slots_5: number;
+  current_spell_slots_6: number;
+  current_spell_slots_7: number;
+  current_spell_slots_8: number;
+  current_spell_slots_9: number;
 };
 
 type CharacterInventory = {
@@ -129,6 +138,7 @@ function AbilitiesAndItemsContent() {
   const [headerLoading, setHeaderLoading] = useState(true);
   const [headerError, setHeaderError] = useState("");
   const [spellSlots, setSpellSlots] = useState<Record<number, string>>(createDefaultSpellSlotsState);
+  const [currSpellSlots, setCurrSpellSlots] = useState<Record<number, string>>(createDefaultSpellSlotsState);
   const [inventoryText, setInventoryText] = useState("");
   const [race, setRace] = useState("");
   const [age, setAge] = useState("");
@@ -220,7 +230,7 @@ function AbilitiesAndItemsContent() {
         const { data: slotsData, error: slotsError } = await supabase
           .from("character_stats")
           .select(
-            "spell_slots_1, spell_slots_2, spell_slots_3, spell_slots_4, spell_slots_5, spell_slots_6, spell_slots_7, spell_slots_8, spell_slots_9"
+            "spell_slots_1, spell_slots_2, spell_slots_3, spell_slots_4, spell_slots_5, spell_slots_6, spell_slots_7, spell_slots_8, spell_slots_9, current_spell_slots_1, current_spell_slots_2, current_spell_slots_3, current_spell_slots_4, current_spell_slots_5, current_spell_slots_6, current_spell_slots_7, current_spell_slots_8, current_spell_slots_9"
           )
           .eq("character_id", parsedCharacterId)
           .maybeSingle<CharacterSpellSlots>();
@@ -239,8 +249,20 @@ function AbilitiesAndItemsContent() {
             8: String(slotsData.spell_slots_8),
             9: String(slotsData.spell_slots_9),
           });
+          setCurrSpellSlots({
+            1: String(slotsData.current_spell_slots_1),
+            2: String(slotsData.current_spell_slots_2),
+            3: String(slotsData.current_spell_slots_3),
+            4: String(slotsData.current_spell_slots_4),
+            5: String(slotsData.current_spell_slots_5),
+            6: String(slotsData.current_spell_slots_6),
+            7: String(slotsData.current_spell_slots_7),
+            8: String(slotsData.current_spell_slots_8),
+            9: String(slotsData.current_spell_slots_9),
+          });
         } else {
           setSpellSlots(createDefaultSpellSlotsState());
+          setCurrSpellSlots(createDefaultSpellSlotsState());
         }
 
         const { data: inventoryDataWithDetails, error: inventoryWithDetailsError } = await supabase
@@ -323,6 +345,17 @@ function AbilitiesAndItemsContent() {
     setDeletingAbility(null);
   };
 
+  const handleMaxSpellSlotChange = (level: number, newValue: string) => {
+    const oldMax = Number.parseInt(spellSlots[level], 10) || 0;
+    const newMax = Number.parseInt(newValue, 10) || 0;
+    const delta = newMax - oldMax;
+    setSpellSlots((current) => ({ ...current, [level]: newValue }));
+    setCurrSpellSlots((current) => {
+      const curr = Number.parseInt(current[level], 10) || 0;
+      return { ...current, [level]: String(Math.max(0, curr + delta)) };
+    });
+  };
+
   const handleSaveAndExit = async () => {
     if (!characterId) {
       setSaveSheetError("Missing character id.");
@@ -351,6 +384,15 @@ function AbilitiesAndItemsContent() {
         spell_slots_7: Number.parseInt(spellSlots[7], 10) || 0,
         spell_slots_8: Number.parseInt(spellSlots[8], 10) || 0,
         spell_slots_9: Number.parseInt(spellSlots[9], 10) || 0,
+        current_spell_slots_1: Number.parseInt(currSpellSlots[1], 10) || 0,
+        current_spell_slots_2: Number.parseInt(currSpellSlots[2], 10) || 0,
+        current_spell_slots_3: Number.parseInt(currSpellSlots[3], 10) || 0,
+        current_spell_slots_4: Number.parseInt(currSpellSlots[4], 10) || 0,
+        current_spell_slots_5: Number.parseInt(currSpellSlots[5], 10) || 0,
+        current_spell_slots_6: Number.parseInt(currSpellSlots[6], 10) || 0,
+        current_spell_slots_7: Number.parseInt(currSpellSlots[7], 10) || 0,
+        current_spell_slots_8: Number.parseInt(currSpellSlots[8], 10) || 0,
+        current_spell_slots_9: Number.parseInt(currSpellSlots[9], 10) || 0,
       },
       { onConflict: "character_id" }
     );
@@ -448,12 +490,7 @@ function AbilitiesAndItemsContent() {
                   type="number"
                   min="0"
                   value={spellSlots[level] ?? "0"}
-                  onChange={(event) =>
-                    setSpellSlots((current) => ({
-                      ...current,
-                      [level]: event.target.value,
-                    }))
-                  }
+                  onChange={(event) => handleMaxSpellSlotChange(level, event.target.value)}
                   className="w-full rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 text-sm font-semibold text-zinc-900 outline-none ring-zinc-900 focus:ring-2"
                 />
               </div>
