@@ -259,7 +259,7 @@ function AbilitiesAndItemsReadonlyContent() {
     setSaving(false);
   };
 
-  const handleInventoryFieldChange = async (field: string, value: string) => {
+  const handleInventoryFieldChange = (field: string, value: string) => {
     switch (field) {
       case "inventory_text": setInventoryText(value); break;
       case "race": setRace(value); break;
@@ -274,6 +274,9 @@ function AbilitiesAndItemsReadonlyContent() {
       case "feats": setFeats(value); break;
       default: return;
     }
+  };
+
+  const handleInventoryFieldBlur = async (field: string, value: string) => {
     if (!characterId) return;
     setSaving(true);
     setSaveError("");
@@ -588,8 +591,8 @@ function AbilitiesAndItemsReadonlyContent() {
               className="mt-4 w-full min-h-[120px] rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
               value={inventoryText}
               onChange={(e) => handleInventoryFieldChange("inventory_text", e.target.value)}
+              onBlur={(e) => handleInventoryFieldBlur("inventory_text", e.target.value)}
               placeholder="List your inventory here..."
-              disabled={saving}
               style={{ overflow: "hidden" }}
             />
 
@@ -602,7 +605,7 @@ function AbilitiesAndItemsReadonlyContent() {
                   className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
                   value={race}
                   onChange={(e) => handleInventoryFieldChange("race", e.target.value)}
-                  disabled={saving}
+                  onBlur={(e) => handleInventoryFieldBlur("race", e.target.value)}
                 />
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -612,7 +615,7 @@ function AbilitiesAndItemsReadonlyContent() {
                     className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
                     value={age}
                     onChange={(e) => handleInventoryFieldChange("age", e.target.value)}
-                    disabled={saving}
+                    onBlur={(e) => handleInventoryFieldBlur("age", e.target.value)}
                   />
                 </div>
                 <div>
@@ -621,7 +624,7 @@ function AbilitiesAndItemsReadonlyContent() {
                     className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
                     value={height}
                     onChange={(e) => handleInventoryFieldChange("height", e.target.value)}
-                    disabled={saving}
+                    onBlur={(e) => handleInventoryFieldBlur("height", e.target.value)}
                   />
                 </div>
               </div>
@@ -632,7 +635,7 @@ function AbilitiesAndItemsReadonlyContent() {
                     className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
                     value={weight}
                     onChange={(e) => handleInventoryFieldChange("weight", e.target.value)}
-                    disabled={saving}
+                    onBlur={(e) => handleInventoryFieldBlur("weight", e.target.value)}
                   />
                 </div>
                 <div>
@@ -641,7 +644,7 @@ function AbilitiesAndItemsReadonlyContent() {
                     className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
                     value={eyes}
                     onChange={(e) => handleInventoryFieldChange("eyes", e.target.value)}
-                    disabled={saving}
+                    onBlur={(e) => handleInventoryFieldBlur("eyes", e.target.value)}
                   />
                 </div>
               </div>
@@ -652,7 +655,7 @@ function AbilitiesAndItemsReadonlyContent() {
                     className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
                     value={skin}
                     onChange={(e) => handleInventoryFieldChange("skin", e.target.value)}
-                    disabled={saving}
+                    onBlur={(e) => handleInventoryFieldBlur("skin", e.target.value)}
                   />
                 </div>
                 <div>
@@ -661,7 +664,7 @@ function AbilitiesAndItemsReadonlyContent() {
                     className="w-full rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
                     value={hair}
                     onChange={(e) => handleInventoryFieldChange("hair", e.target.value)}
-                    disabled={saving}
+                    onBlur={(e) => handleInventoryFieldBlur("hair", e.target.value)}
                   />
                 </div>
               </div>
@@ -673,7 +676,7 @@ function AbilitiesAndItemsReadonlyContent() {
                 className="w-full min-h-[48px] rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 whitespace-pre-line focus:outline-none focus:ring-2 focus:ring-blue-400"
                 value={otherTraits}
                 onChange={(e) => handleInventoryFieldChange("other_traits", e.target.value)}
-                disabled={saving}
+                onBlur={(e) => handleInventoryFieldBlur("other_traits", e.target.value)}
                 style={{ overflow: "hidden" }}
                 onInput={(e) => {
                   const t = e.currentTarget;
@@ -688,7 +691,7 @@ function AbilitiesAndItemsReadonlyContent() {
                 className="w-full min-h-[48px] rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 whitespace-pre-line focus:outline-none focus:ring-2 focus:ring-blue-400"
                 value={languages}
                 onChange={(e) => handleInventoryFieldChange("languages", e.target.value)}
-                disabled={saving}
+                onBlur={(e) => handleInventoryFieldBlur("languages", e.target.value)}
               />
             </div>
             <div className="mt-3">
@@ -697,7 +700,7 @@ function AbilitiesAndItemsReadonlyContent() {
                 className="w-full min-h-[48px] rounded-xl border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 whitespace-pre-line focus:outline-none focus:ring-2 focus:ring-blue-400"
                 value={feats}
                 onChange={(e) => handleInventoryFieldChange("feats", e.target.value)}
-                disabled={saving}
+                onBlur={(e) => handleInventoryFieldBlur("feats", e.target.value)}
               />
             </div>
 

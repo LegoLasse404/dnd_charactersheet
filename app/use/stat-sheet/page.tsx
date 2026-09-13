@@ -216,6 +216,7 @@ function UseCharacterContent() {
                       <div className="mt-1 flex gap-2 items-center">
                         <input type="number" inputMode="numeric" value={currHp} onChange={(e) => handleChangeCurrHp(e.target.value)}
                           className="w-20 rounded border border-zinc-300 bg-white px-2 py-1 text-base font-semibold text-zinc-900 outline-none ring-zinc-900 focus:ring-2" style={{ minWidth: 0 }} />
+                        <span className="text-sm text-zinc-500 font-medium">/ {String(stats.hp_max)}</span>
                       </div>
                       {saveError && <p className="mt-1 text-xs text-red-700">{saveError}</p>}
                     </label>
