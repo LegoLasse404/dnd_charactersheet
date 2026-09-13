@@ -2,7 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { getCharacter, getCharacterStats, updateCharacterCurrentStats, updateCharacterLevel } from "@/lib/actions";
+import { getCharacter, getCharacterStats, updateCharacterCurrentStats } from "@/lib/actions";
 
 export const dynamic = 'force-dynamic';
 
@@ -52,7 +52,6 @@ function UseCharacterContent() {
   const [stats, setStats] = useState<Record<string, unknown> | null>(null);
   const [currHp, setCurrHp] = useState("");
   const [currHitDie, setCurrHitDie] = useState("");
-  const [levelInput, setLevelInput] = useState("");
   const [headerLoading, setHeaderLoading] = useState(true);
   const [headerError, setHeaderError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
@@ -119,20 +118,6 @@ function UseCharacterContent() {
     }
   };
 
-  const handleLevelUp = async () => {
-    if (!characterId) return;
-    const parsed = Number.parseInt(levelInput, 10);
-    if (Number.isNaN(parsed) || parsed < 1) { setSaveError("Please enter a valid level."); return; }
-    setIsSaving(true);
-    setSaveError("");
-    try {
-      await updateCharacterLevel(Number.parseInt(characterId, 10), parsed);
-      router.push(`/edit/stat-sheet?characterId=${characterId}`);
-    } catch (err: any) {
-      setSaveError(err.message ?? "Failed to update level.");
-      setIsSaving(false);
-    }
-  };
 
   if (headerLoading) return <main className="flex min-h-screen items-center justify-center bg-zinc-50"><p className="text-sm text-zinc-600">Loading character...</p></main>;
   if (headerError) return <main className="flex min-h-screen items-center justify-center bg-zinc-50"><p className="text-sm text-red-700">{headerError}</p></main>;
@@ -307,17 +292,6 @@ function UseCharacterContent() {
                     })}
                   </div>
                 ))}
-              </div>
-              <div className="mt-6 flex flex-col items-start gap-2">
-                <label className="block text-xs font-semibold text-zinc-700 mb-1">Level Up (enter new level)</label>
-                <input type="number" min={1}
-                  className="w-32 rounded border border-zinc-300 bg-zinc-50 px-3 py-2 text-sm text-zinc-900 focus:outline-none focus:ring-2 focus:ring-blue-400"
-                  placeholder="Enter level" value={levelInput} onChange={(e) => setLevelInput(e.target.value)} />
-                <button type="button" onClick={handleLevelUp} disabled={isSaving}
-                  className="rounded bg-emerald-600 px-4 py-2 text-white font-semibold hover:bg-emerald-700 disabled:opacity-60 mt-1">
-                  Level Up
-                </button>
-                {saveError && <p className="mt-1 text-xs text-red-700">{saveError}</p>}
               </div>
             </section>
           </div>

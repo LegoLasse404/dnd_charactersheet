@@ -110,6 +110,7 @@ function AbilitiesAndItemsReadonlyContent() {
   const [headerError, setHeaderError] = useState("");
   const [selectedSpellSlots, setSelectedSpellSlots] = useState<Record<number, string>>({});
   const [statsData, setStatsData] = useState<Record<string, unknown> | null>(null);
+  const [spellSlotNote, setSpellSlotNote] = useState("");
 
   useEffect(() => {
     if (inventoryTextRef.current) {
@@ -177,6 +178,7 @@ function AbilitiesAndItemsReadonlyContent() {
         const slotsData = await getCharacterStats(parsedId) as Record<string, unknown> | null;
         setStatsData(slotsData);
         if (slotsData) {
+          setSpellSlotNote(typeof slotsData.spell_slot_note === "string" ? slotsData.spell_slot_note : "");
           setSpellSlots({
             1: String(slotsData.spell_slots_1 ?? 0),
             2: String(slotsData.spell_slots_2 ?? 0),
@@ -436,6 +438,9 @@ function AbilitiesAndItemsReadonlyContent() {
             )}
             {saveError && <div className="mt-3 text-sm text-red-600">{saveError}</div>}
           </div>
+          {spellSlotNote && (
+            <p className="mt-3 rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-700">{spellSlotNote}</p>
+          )}
         </section>
 
         <div className="mt-4 grid gap-4 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">

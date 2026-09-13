@@ -53,20 +53,17 @@ export async function getCharacterStats(characterId: number) {
 }
 
 export async function upsertCharacterStats(characterId: number, payload: Record<string, unknown>) {
-  const columns = ["character_id", ...Object.keys(payload)];
-  const values = [characterId, ...Object.values(payload)];
-
-  const colList = columns.map((c) => `"${c}"`).join(", ");
-  const placeholders = values.map((_, i) => `$${i + 1}`).join(", ");
-  const updates = Object.keys(payload)
-    .map((c) => `"${c}" = EXCLUDED."${c}"`)
-    .join(", ");
-
-  await sql.query(
-    `INSERT INTO character_stats (${colList}) VALUES (${placeholders})
-     ON CONFLICT (character_id) DO UPDATE SET ${updates}`,
-    values
-  );
+  const existing = await sql`SELECT character_id FROM character_stats WHERE character_id = ${characterId} LIMIT 1`;
+  if (existing.length > 0) {
+    const sets = Object.keys(payload).map((c, i) => `"${c}" = $${i + 2}`).join(", ");
+    await sql.query(`UPDATE character_stats SET ${sets} WHERE character_id = $1`, [characterId, ...Object.values(payload)]);
+  } else {
+    const columns = ["character_id", ...Object.keys(payload)];
+    const values = [characterId, ...Object.values(payload)];
+    const colList = columns.map((c) => `"${c}"`).join(", ");
+    const placeholders = values.map((_, i) => `$${i + 1}`).join(", ");
+    await sql.query(`INSERT INTO character_stats (${colList}) VALUES (${placeholders})`, values);
+  }
 }
 
 // ── Character Inventory ───────────────────────────────────────────────────────
@@ -77,20 +74,17 @@ export async function getCharacterInventory(characterId: number) {
 }
 
 export async function upsertCharacterInventory(characterId: number, payload: Record<string, unknown>) {
-  const columns = ["character_id", ...Object.keys(payload)];
-  const values = [characterId, ...Object.values(payload)];
-
-  const colList = columns.map((c) => `"${c}"`).join(", ");
-  const placeholders = values.map((_, i) => `$${i + 1}`).join(", ");
-  const updates = Object.keys(payload)
-    .map((c) => `"${c}" = EXCLUDED."${c}"`)
-    .join(", ");
-
-  await sql.query(
-    `INSERT INTO character_inventory (${colList}) VALUES (${placeholders})
-     ON CONFLICT (character_id) DO UPDATE SET ${updates}`,
-    values
-  );
+  const existing = await sql`SELECT character_id FROM character_inventory WHERE character_id = ${characterId} LIMIT 1`;
+  if (existing.length > 0) {
+    const sets = Object.keys(payload).map((c, i) => `"${c}" = $${i + 2}`).join(", ");
+    await sql.query(`UPDATE character_inventory SET ${sets} WHERE character_id = $1`, [characterId, ...Object.values(payload)]);
+  } else {
+    const columns = ["character_id", ...Object.keys(payload)];
+    const values = [characterId, ...Object.values(payload)];
+    const colList = columns.map((c) => `"${c}"`).join(", ");
+    const placeholders = values.map((_, i) => `$${i + 1}`).join(", ");
+    await sql.query(`INSERT INTO character_inventory (${colList}) VALUES (${placeholders})`, values);
+  }
 }
 
 // ── Character Actions ─────────────────────────────────────────────────────────
@@ -205,6 +199,11 @@ export async function patchCharacterInventory(characterId: number, field: string
 export async function updateCharacterLevel(characterId: number, level: number) {
   await getSession();
   await sql`UPDATE characters SET lv = ${level} WHERE id = ${characterId}`;
+}
+
+export async function updateCharacter(characterId: number, name: string, cls: string, lv: number) {
+  const session = await getSession();
+  await sql`UPDATE characters SET name = ${name}, class = ${cls}, lv = ${lv} WHERE id = ${characterId} AND user_id = ${session.user.id}`;
 }
 
 export async function getAbility(type: "action" | "spell" | "cantrip", id: number) {

@@ -77,6 +77,7 @@ function AbilitiesAndItemsContent() {
   const [otherTraits, setOtherTraits] = useState("");
   const [languages, setLanguages] = useState("");
   const [feats, setFeats] = useState("");
+  const [spellSlotNote, setSpellSlotNote] = useState("");
   const [isSavingSheet, setIsSavingSheet] = useState(false);
   const [saveSheetError, setSaveSheetError] = useState("");
 
@@ -113,6 +114,7 @@ function AbilitiesAndItemsContent() {
         if (statsData) {
           setSpellSlots({ 1: String(statsData.spell_slots_1 ?? 0), 2: String(statsData.spell_slots_2 ?? 0), 3: String(statsData.spell_slots_3 ?? 0), 4: String(statsData.spell_slots_4 ?? 0), 5: String(statsData.spell_slots_5 ?? 0), 6: String(statsData.spell_slots_6 ?? 0), 7: String(statsData.spell_slots_7 ?? 0), 8: String(statsData.spell_slots_8 ?? 0), 9: String(statsData.spell_slots_9 ?? 0) });
           setCurrSpellSlots({ 1: String(statsData.current_spell_slots_1 ?? 0), 2: String(statsData.current_spell_slots_2 ?? 0), 3: String(statsData.current_spell_slots_3 ?? 0), 4: String(statsData.current_spell_slots_4 ?? 0), 5: String(statsData.current_spell_slots_5 ?? 0), 6: String(statsData.current_spell_slots_6 ?? 0), 7: String(statsData.current_spell_slots_7 ?? 0), 8: String(statsData.current_spell_slots_8 ?? 0), 9: String(statsData.current_spell_slots_9 ?? 0) });
+          setSpellSlotNote(typeof statsData.spell_slot_note === "string" ? statsData.spell_slot_note : "");
         }
 
         const invData = await getCharacterInventory(parsedId) as Record<string, unknown> | null;
@@ -193,6 +195,7 @@ function AbilitiesAndItemsContent() {
         current_spell_slots_7: Number.parseInt(currSpellSlots[7], 10) || 0,
         current_spell_slots_8: Number.parseInt(currSpellSlots[8], 10) || 0,
         current_spell_slots_9: Number.parseInt(currSpellSlots[9], 10) || 0,
+        spell_slot_note: spellSlotNote,
       });
 
       await upsertCharacterInventory(parsedId, { inventory_text: inventoryText, race, age, height, weight, eyes, skin, hair, other_traits: otherTraits, languages, feats });
@@ -243,6 +246,16 @@ function AbilitiesAndItemsContent() {
                   className="w-full rounded-md border border-zinc-300 bg-zinc-50 px-2 py-1 text-sm font-semibold text-zinc-900 outline-none ring-zinc-900 focus:ring-2" />
               </div>
             ))}
+          </div>
+          <div className="mt-3">
+            <label className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500 mb-1">Note</label>
+            <textarea
+              value={spellSlotNote}
+              onChange={(e) => setSpellSlotNote(e.target.value)}
+              placeholder="e.g. Slots 1–2 from Warlock, rest from Paladin"
+              rows={2}
+              className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm text-zinc-800 outline-none ring-zinc-900 placeholder:text-zinc-400 focus:ring-2 resize-none"
+            />
           </div>
         </section>
 

@@ -1,9 +1,9 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { authClient } from "@/lib/auth-client";
-import { getCharacters, createCharacter } from "@/lib/actions";
+import { getCharacters, createCharacter, updateCharacter } from "@/lib/actions";
 
 type Character = {
   id: number;
@@ -30,10 +30,15 @@ export default function Home() {
   const [characters, setCharacters] = useState<Character[]>([]);
   const [charactersLoading, setCharactersLoading] = useState(false);
   const [activeAction, setActiveAction] = useState<
-    "signin" | "create-character" | "update-email" | "update-password" | "signout" | null
+    "signin" | "create-character" | "update-email" | "update-password" | "signout" | "level-up" | null
   >(null);
   const [successMessage, setSuccessMessage] = useState("");
   const [errorMessage, setErrorMessage] = useState("");
+
+  const [levelUpCharacter, setLevelUpCharacter] = useState<Character | null>(null);
+  const [levelUpName, setLevelUpName] = useState("");
+  const [levelUpClass, setLevelUpClass] = useState("");
+  const [levelUpLevel, setLevelUpLevel] = useState("1");
 
   useEffect(() => {
     if (user) setNewEmail(user.email ?? "");
@@ -122,6 +127,36 @@ export default function Home() {
     }
   };
 
+  const openLevelUp = (character: Character) => {
+    setLevelUpCharacter(character);
+    setLevelUpName(character.name);
+    setLevelUpClass(character.class);
+    setLevelUpLevel(String(character.lv));
+    setErrorMessage("");
+    setSuccessMessage("");
+  };
+
+  const handleLevelUp = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!levelUpCharacter) return;
+    const parsedLevel = Number.parseInt(levelUpLevel, 10);
+    if (!Number.isInteger(parsedLevel) || parsedLevel < 1) {
+      setErrorMessage("Level must be a whole number greater than 0.");
+      return;
+    }
+    setActiveAction("level-up");
+    setErrorMessage("");
+    try {
+      await updateCharacter(levelUpCharacter.id, levelUpName, levelUpClass, parsedLevel);
+      setLevelUpCharacter(null);
+      setActiveAction(null);
+      router.push(`/edit/stat-sheet?characterId=${levelUpCharacter.id}`);
+    } catch (err: any) {
+      setErrorMessage(err.message ?? "Failed to update character.");
+      setActiveAction(null);
+    }
+  };
+
   const handleSignOut = async () => {
     setActiveAction("signout");
     setSuccessMessage("");
@@ -154,41 +189,47 @@ export default function Home() {
                 <p className="text-sm text-zinc-600">Loading characters...</p>
               ) : characters.length > 0 ? (
                 <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
-                  <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_80px_80px] gap-4 border-b border-zinc-200 px-4 py-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    <span>Name</span>
-                    <span>Class</span>
-                    <span>Race</span>
-                    <span>Level</span>
-                    <span></span>
-                  </div>
+                  <div className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto] gap-x-4 px-4">
+                    <span className="py-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">Name</span>
+                    <span className="py-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">Class</span>
+                    <span className="py-3 text-xs font-semibold uppercase tracking-wide text-zinc-500">Race</span>
+                    <span className="py-3" />
+                    <div className="col-span-4 border-b border-zinc-200" />
 
-                  {characters.map((character) => (
-                    <div
-                      key={character.id}
-                      className="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_80px_80px] gap-4 border-b border-zinc-100 px-4 py-3 last:border-b-0"
-                    >
-                      <span className="font-medium text-zinc-900">{character.name}</span>
-                      <span className="text-zinc-700">{character.class}</span>
-                      <span className="text-zinc-700">{character.race || "-"}</span>
-                      <span className="text-zinc-700">{character.lv}</span>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => router.push(`/edit/stat-sheet?characterId=${character.id}`)}
-                          className="w-fit rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-900 transition hover:bg-zinc-100"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => router.push(`/use/stat-sheet?characterId=${character.id}`)}
-                          className="w-fit rounded-md border border-green-400 bg-white px-2.5 py-1 text-xs font-semibold text-green-700 transition hover:bg-green-50"
-                        >
-                          Use
-                        </button>
-                      </div>
-                    </div>
-                  ))}
+                    {characters.map((character, i) => (
+                      <Fragment key={character.id}>
+                        <span className="py-2 font-medium text-zinc-900">{character.name}</span>
+                        <span className="py-2 text-zinc-700">{character.class}</span>
+                        <span className="py-2 text-zinc-700">{character.race || "-"}</span>
+                        <div className="flex items-center gap-2 py-2">
+                          <button
+                            type="button"
+                            onClick={() => router.push(`/edit/stat-sheet?characterId=${character.id}`)}
+                            className="w-fit rounded-md border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-900 transition hover:bg-zinc-100"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => router.push(`/use/stat-sheet?characterId=${character.id}`)}
+                            className="w-fit rounded-md border border-green-400 bg-white px-2.5 py-1 text-xs font-semibold text-green-700 transition hover:bg-green-50"
+                          >
+                            Use
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => openLevelUp(character)}
+                            className="w-fit rounded-md border border-indigo-300 bg-white px-2.5 py-1 text-xs font-semibold text-indigo-700 transition hover:bg-indigo-50"
+                          >
+                            Level up
+                          </button>
+                        </div>
+                        {i < characters.length - 1 && (
+                          <div className="col-span-4 border-b border-zinc-100" />
+                        )}
+                      </Fragment>
+                    ))}
+                  </div>
                 </div>
               ) : (
                 <p className="text-sm text-zinc-600">No characters found for this account yet.</p>
@@ -237,6 +278,60 @@ export default function Home() {
                 </button>
               </form>
             </section>
+
+            {levelUpCharacter && (
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+                <div className="w-full max-w-sm rounded-xl border border-zinc-200 bg-white p-6 shadow-lg">
+                  <h2 className="text-lg font-semibold tracking-tight text-zinc-900">Level up character</h2>
+                  <p className="mt-1 text-sm text-zinc-500">Update the name, class, and level, then continue to the edit page.</p>
+                  <form className="mt-5 space-y-3" onSubmit={handleLevelUp}>
+                    <input
+                      type="text"
+                      value={levelUpName}
+                      onChange={(e) => setLevelUpName(e.target.value)}
+                      required
+                      placeholder="Name"
+                      className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none ring-zinc-900 placeholder:text-zinc-400 focus:ring-2"
+                    />
+                    <input
+                      type="text"
+                      value={levelUpClass}
+                      onChange={(e) => setLevelUpClass(e.target.value)}
+                      required
+                      placeholder="Class"
+                      className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none ring-zinc-900 placeholder:text-zinc-400 focus:ring-2"
+                    />
+                    <input
+                      type="number"
+                      min="1"
+                      step="1"
+                      value={levelUpLevel}
+                      onChange={(e) => setLevelUpLevel(e.target.value)}
+                      required
+                      placeholder="Level"
+                      className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none ring-zinc-900 placeholder:text-zinc-400 focus:ring-2"
+                    />
+                    <div className="flex gap-3 pt-1">
+                      <button
+                        type="submit"
+                        disabled={activeAction === "level-up"}
+                        className="flex-1 rounded-lg bg-zinc-900 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {activeAction === "level-up" ? "Saving..." : "Save & edit"}
+                      </button>
+                      <button
+                        type="button"
+                        disabled={activeAction === "level-up"}
+                        onClick={() => setLevelUpCharacter(null)}
+                        className="rounded-lg border border-zinc-300 bg-white px-4 py-2.5 text-sm font-medium text-zinc-700 transition hover:bg-zinc-100 disabled:opacity-60"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
+                </div>
+              </div>
+            )}
 
             <section className="mt-10 border-t border-zinc-200 pt-8">
               <h2 className="text-2xl font-semibold tracking-tight">Account</h2>
