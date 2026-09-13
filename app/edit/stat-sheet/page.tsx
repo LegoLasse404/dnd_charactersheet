@@ -2,13 +2,14 @@
 
 import { ChangeEvent, Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { supabase } from "@/lib/supabase/client";
+import { authClient } from "@/lib/auth-client";
+import { getCharacter, getCharacterStats, upsertCharacterStats } from "@/lib/actions";
 
 export const dynamic = 'force-dynamic';
 
 type AbilityKey = "str" | "dex" | "con" | "int" | "wis" | "cha";
 type AbilityScores = Record<AbilityKey, number>;
-type SkillLevel = 0 | 1 | 2; // 0=none, 1=proficiency, 2=expertise
+type SkillLevel = 0 | 1 | 2;
 type SkillLevels = Record<string, SkillLevel>;
 type SaveProficiencies = Record<string, boolean>;
 
@@ -24,19 +25,6 @@ type CharacterHeader = {
   class: string;
   lv: number;
 };
-
-type CharacterStatsRow = {
-  str: number;
-  dex: number;
-  con: number;
-  int: number;
-  wis: number;
-  cha: number;
-  ac: number;
-  speed: number;
-  hp_max: number;
-  hit_dice: string;
-} & Record<string, unknown>;
 
 const abilityLabels: Array<{ key: AbilityKey; label: string; name: string }> = [
   { key: "str", label: "STR", name: "Strength" },
@@ -162,35 +150,22 @@ function buildDefaultSaveProficiencies(): SaveProficiencies {
 function SkillCheckbox({ level, onClick }: { level: SkillLevel; onClick: () => void }) {
   if (level === 2) {
     return (
-      <button
-        type="button"
-        onClick={onClick}
+      <button type="button" onClick={onClick}
         className="flex h-4 w-4 items-center justify-center rounded-sm border border-amber-500 bg-amber-500 text-[10px] font-bold leading-none text-white transition"
-        aria-label="Expertise — click to cycle"
-      >
-        ✦
-      </button>
+        aria-label="Expertise — click to cycle">✦</button>
     );
   }
   if (level === 1) {
     return (
-      <button
-        type="button"
-        onClick={onClick}
+      <button type="button" onClick={onClick}
         className="flex h-4 w-4 items-center justify-center rounded-sm border border-zinc-900 bg-zinc-900 text-[10px] font-bold leading-none text-white transition"
-        aria-label="Proficiency — click to cycle"
-      >
-        ✓
-      </button>
+        aria-label="Proficiency — click to cycle">✓</button>
     );
   }
   return (
-    <button
-      type="button"
-      onClick={onClick}
+    <button type="button" onClick={onClick}
       className="flex h-4 w-4 items-center justify-center rounded-sm border border-zinc-400 bg-white transition"
-      aria-label="None — click to cycle"
-    />
+      aria-label="None — click to cycle" />
   );
 }
 
@@ -198,6 +173,8 @@ function StatSheetPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const characterId = searchParams.get("characterId");
+  const { data: session } = authClient.useSession();
+
   const [scores, setScores] = useState<AbilityScores>(defaultScores);
   const [character, setCharacter] = useState<CharacterHeader | null>(null);
   const [skillLevels, setSkillLevels] = useState<SkillLevels>(buildDefaultSkillLevels);
@@ -229,62 +206,45 @@ function StatSheetPageContent() {
         return;
       }
 
-      setHeaderLoading(true);
-      setHeaderError("");
-
-      const { data: { user }, error: userError } = await supabase.auth.getUser();
-
-      if (userError || !user) {
-        setHeaderError(userError?.message ?? "You must be signed in to view this character.");
+      if (!session?.user) {
+        setHeaderError("You must be signed in to view this character.");
         setHeaderLoading(false);
         return;
       }
 
-      const parsedCharacterId = Number.parseInt(characterId, 10);
+      setHeaderLoading(true);
+      setHeaderError("");
 
+      const parsedCharacterId = Number.parseInt(characterId, 10);
       if (Number.isNaN(parsedCharacterId)) {
         setHeaderError("Invalid character id.");
         setHeaderLoading(false);
         return;
       }
 
-      const { data, error } = await supabase
-        .from("characters")
-        .select("id, user_id, name, class, lv")
-        .eq("id", parsedCharacterId)
-        .eq("user_id", user.id)
-        .single();
-
-      if (error) {
-        setHeaderError(error.message);
-        setCharacter(null);
-      } else {
+      try {
+        const data = await getCharacter(parsedCharacterId);
+        if (!data) {
+          setHeaderError("Character not found.");
+          setHeaderLoading(false);
+          return;
+        }
         setCharacter(data);
 
-        const { data: statData, error: statsError } = await supabase
-          .from("character_stats")
-          .select(
-            "str, dex, con, int, wis, cha, ac, speed, hp_max, hit_dice, " +
-            "prof_save_str, prof_save_dex, prof_save_con, prof_save_int, prof_save_wis, prof_save_cha, " +
-            "prof_skill_acrobatics, prof_skill_animal_handling, prof_skill_arcana, prof_skill_athletics, prof_skill_deception, prof_skill_history, prof_skill_insight, prof_skill_intimidation, prof_skill_investigation, prof_skill_medicine, prof_skill_nature, prof_skill_perception, prof_skill_performance, prof_skill_persuasion, prof_skill_religion, prof_skill_sleight_of_hand, prof_skill_stealth, prof_skill_survival, " +
-            "expertise_skill_acrobatics, expertise_skill_animal_handling, expertise_skill_arcana, expertise_skill_athletics, expertise_skill_deception, expertise_skill_history, expertise_skill_insight, expertise_skill_intimidation, expertise_skill_investigation, expertise_skill_medicine, expertise_skill_nature, expertise_skill_perception, expertise_skill_performance, expertise_skill_persuasion, expertise_skill_religion, expertise_skill_sleight_of_hand, expertise_skill_stealth, expertise_skill_survival"
-          )
-          .eq("character_id", parsedCharacterId)
-          .maybeSingle<CharacterStatsRow>();
-
-        if (statsError) {
-          setHeaderError(statsError.message);
-        } else if (statData) {
-          setScores({ str: statData.str, dex: statData.dex, con: statData.con, int: statData.int, wis: statData.wis, cha: statData.cha });
+        const statData = await getCharacterStats(parsedCharacterId) as Record<string, unknown> | null;
+        if (statData) {
+          setScores({
+            str: statData.str as number, dex: statData.dex as number, con: statData.con as number,
+            int: statData.int as number, wis: statData.wis as number, cha: statData.cha as number,
+          });
           setArmorClass(String(statData.ac));
           setSpeedFeet(String(statData.speed));
           setMaxHp(String(statData.hp_max));
-          setHitDiceTotal(statData.hit_dice);
+          setHitDiceTotal(statData.hit_dice as string ?? "");
 
           const nextSaveProficiencies = buildDefaultSaveProficiencies();
           for (const [name, column] of Object.entries(savingThrowColumnByName)) {
-            const value = statData[column];
-            if (typeof value === "boolean") nextSaveProficiencies[name] = value;
+            if (typeof statData[column] === "boolean") nextSaveProficiencies[name] = statData[column] as boolean;
           }
           setSaveProficiencies(nextSaveProficiencies);
 
@@ -292,13 +252,9 @@ function StatSheetPageContent() {
           for (const name of Object.keys(skillProfColumnByName)) {
             const prof = statData[skillProfColumnByName[name]];
             const expertise = statData[skillExpertiseColumnByName[name]];
-            if (expertise === true) {
-              nextSkillLevels[name] = 2;
-            } else if (prof === true) {
-              nextSkillLevels[name] = 1;
-            } else {
-              nextSkillLevels[name] = 0;
-            }
+            if (expertise === true) nextSkillLevels[name] = 2;
+            else if (prof === true) nextSkillLevels[name] = 1;
+            else nextSkillLevels[name] = 0;
           }
           setSkillLevels(nextSkillLevels);
         } else {
@@ -310,13 +266,15 @@ function StatSheetPageContent() {
           setSaveProficiencies(buildDefaultSaveProficiencies());
           setSkillLevels(buildDefaultSkillLevels());
         }
+      } catch (err: any) {
+        setHeaderError(err.message ?? "Failed to load character.");
       }
 
       setHeaderLoading(false);
     };
 
     void loadCharacter();
-  }, [characterId]);
+  }, [characterId, session]);
 
   const handleScoreChange = (key: AbilityKey) => (event: ChangeEvent<HTMLInputElement>) => {
     const nextValue = Number.parseInt(event.target.value, 10);
@@ -336,7 +294,6 @@ function StatSheetPageContent() {
 
   const handleNext = async () => {
     if (!characterId) { setSaveError("Missing character id."); return; }
-
     const parsedCharacterId = Number.parseInt(characterId, 10);
     if (Number.isNaN(parsedCharacterId)) { setSaveError("Invalid character id."); return; }
 
@@ -344,7 +301,6 @@ function StatSheetPageContent() {
     setSaveError("");
 
     const payload: Record<string, boolean | number | string> = {
-      character_id: parsedCharacterId,
       str: scores.str, dex: scores.dex, con: scores.con,
       int: scores.int, wis: scores.wis, cha: scores.cha,
       ac: Number.parseInt(armorClass, 10) || 10,
@@ -365,33 +321,25 @@ function StatSheetPageContent() {
       if (expertiseColumn) payload[expertiseColumn] = level === 2;
     }
 
-    const { error } = await supabase.from("character_stats").upsert(payload, { onConflict: "character_id" });
-
-    if (error) {
-      setSaveError(error.message);
+    try {
+      await upsertCharacterStats(parsedCharacterId, payload);
+      router.push(`/edit/abilities-and-items?characterId=${parsedCharacterId}`);
+    } catch (err: any) {
+      setSaveError(err.message ?? "Failed to save stats.");
       setIsSavingAndContinuing(false);
-      return;
     }
-
-    router.push(`/edit/abilities-and-items?characterId=${parsedCharacterId}`);
   };
 
   return (
     <main className="min-h-screen bg-zinc-50 px-4 py-6 text-zinc-900">
       <div className="mx-auto w-full max-w-5xl">
         <header>
-          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-zinc-500">
-            Character Sheet
-          </p>
+          <p className="text-xs font-semibold uppercase tracking-[0.3em] text-zinc-500">Character Sheet</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">
             {headerLoading ? "Loading character..." : character?.name ?? "Stat Sheet"}
           </h1>
           <p className="mt-2 text-sm text-zinc-600">
-            {headerLoading
-              ? "Fetching character details."
-              : character
-                ? `${character.class} • Level ${character.lv}`
-                : headerError}
+            {headerLoading ? "Fetching character details." : character ? `${character.class} • Level ${character.lv}` : headerError}
           </p>
         </header>
 
@@ -401,35 +349,22 @@ function StatSheetPageContent() {
               {abilityLabels.map((ability) => {
                 const score = scores[ability.key];
                 const modifier = modifiers[ability.key];
-
                 return (
-                  <article
-                    key={ability.key}
-                    className="relative min-h-[92px] rounded-[1.2rem] border-2 border-zinc-900 bg-white px-2.5 pb-7 pt-2.5 shadow-sm"
-                  >
+                  <article key={ability.key}
+                    className="relative min-h-[92px] rounded-[1.2rem] border-2 border-zinc-900 bg-white px-2.5 pb-7 pt-2.5 shadow-sm">
                     <span className="pointer-events-none absolute left-1.5 top-1.5 h-3 w-3 rounded-tl-[0.6rem] border-l-2 border-t-2 border-zinc-900" />
                     <span className="pointer-events-none absolute right-1.5 top-1.5 h-3 w-3 rounded-tr-[0.6rem] border-r-2 border-t-2 border-zinc-900" />
                     <span className="pointer-events-none absolute bottom-5 left-1.5 h-3 w-3 rounded-bl-[0.6rem] border-b-2 border-l-2 border-zinc-900" />
                     <span className="pointer-events-none absolute bottom-5 right-1.5 h-3 w-3 rounded-br-[0.6rem] border-b-2 border-r-2 border-zinc-900" />
-
                     <div className="relative text-center">
-                      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-800">
-                        {ability.name}
-                      </p>
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-800">{ability.name}</p>
                     </div>
-
                     <div className="mt-2 grid gap-1">
                       <label htmlFor={ability.key} className="sr-only">{ability.name}</label>
-                      <input
-                        id={ability.key}
-                        type="number"
-                        inputMode="numeric"
-                        value={score}
+                      <input id={ability.key} type="number" inputMode="numeric" value={score}
                         onChange={handleScoreChange(ability.key)}
-                        className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-2.5 py-1 text-center text-base font-semibold outline-none ring-zinc-900 focus:ring-2"
-                      />
+                        className="w-full rounded-lg border border-zinc-300 bg-zinc-50 px-2.5 py-1 text-center text-base font-semibold outline-none ring-zinc-900 focus:ring-2" />
                     </div>
-
                     <div className="absolute bottom-[-8px] left-1/2 flex h-9 w-16 -translate-x-1/2 items-center justify-center rounded-full border-2 border-zinc-900 bg-white shadow-sm">
                       <p className="text-lg font-semibold text-zinc-900">{formatModifier(modifier)}</p>
                     </div>
@@ -445,59 +380,39 @@ function StatSheetPageContent() {
                 <div className="grid gap-2 sm:grid-cols-3">
                   <label className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
                     <span className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Armor Class</span>
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      value={armorClass}
+                    <input type="number" inputMode="numeric" value={armorClass}
                       onChange={(event) => setArmorClass(event.target.value)}
-                      className="mt-1 w-full bg-transparent text-base font-semibold text-zinc-900 outline-none"
-                    />
+                      className="mt-1 w-full bg-transparent text-base font-semibold text-zinc-900 outline-none" />
                   </label>
-
                   <label className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
                     <span className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Initiative</span>
                     <p className="mt-1 text-base font-semibold text-zinc-900">{formatModifier(initiativeModifier)}</p>
                   </label>
-
                   <label className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
                     <span className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Speed</span>
                     <div className="mt-1 flex items-center gap-1">
-                      <input
-                        type="number"
-                        inputMode="numeric"
-                        value={speedFeet}
+                      <input type="number" inputMode="numeric" value={speedFeet}
                         onChange={(event) => setSpeedFeet(event.target.value)}
-                        className="w-full bg-transparent text-base font-semibold text-zinc-900 outline-none"
-                      />
+                        className="w-full bg-transparent text-base font-semibold text-zinc-900 outline-none" />
                       <span className="text-xs font-semibold text-zinc-500">ft</span>
                     </div>
                   </label>
                 </div>
-
                 <div className="mt-3 grid gap-2 sm:grid-cols-2">
                   <label className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
                     <span className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Hit Point Maximum</span>
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      value={maxHp}
+                    <input type="number" inputMode="numeric" value={maxHp}
                       onChange={(event) => setMaxHp(event.target.value)}
-                      className="mt-1 w-full bg-transparent text-base font-semibold text-zinc-900 outline-none"
-                    />
+                      className="mt-1 w-full bg-transparent text-base font-semibold text-zinc-900 outline-none" />
                   </label>
-
                   <label className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
                     <span className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Hit Dice</span>
-                    <input
-                      type="text"
-                      value={hitDiceTotal}
+                    <input type="text" value={hitDiceTotal}
                       onChange={(event) => setHitDiceTotal(event.target.value)}
                       placeholder="e.g. 2d8"
-                      className="mt-1 w-full bg-transparent text-base font-semibold text-zinc-900 outline-none placeholder:text-zinc-400"
-                    />
+                      className="mt-1 w-full bg-transparent text-base font-semibold text-zinc-900 outline-none placeholder:text-zinc-400" />
                   </label>
                 </div>
-
                 <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2">
                   <span className="block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">Proficiency Bonus</span>
                   <p className="mt-1 text-base font-semibold text-zinc-900">{formatModifier(proficiencyBonus)}</p>
@@ -510,26 +425,19 @@ function StatSheetPageContent() {
                   {savingThrowEntries.map((entry) => {
                     const isProficient = saveProficiencies[entry.name] ?? false;
                     const total = modifiers[entry.ability] + (isProficient ? proficiencyBonus : 0);
-
                     return (
-                      <div
-                        key={entry.ability}
-                        className="flex items-center justify-between gap-3 rounded-lg bg-zinc-50 px-3 py-2"
-                      >
+                      <div key={entry.ability}
+                        className="flex items-center justify-between gap-3 rounded-lg bg-zinc-50 px-3 py-2">
                         <div className="flex items-center gap-2">
                           <label className="inline-flex cursor-pointer items-center">
-                            <input
-                              type="checkbox"
-                              checked={isProficient}
+                            <input type="checkbox" checked={isProficient}
                               onChange={() => handleSavingThrowToggle(entry.name)}
                               className="peer sr-only"
-                              aria-label={`Toggle proficiency for ${entry.name} saving throw`}
-                            />
+                              aria-label={`Toggle proficiency for ${entry.name} saving throw`} />
                             <span className="flex h-4 w-4 items-center justify-center rounded-sm border border-zinc-400 bg-white text-[10px] font-bold leading-none text-zinc-900 transition peer-checked:border-zinc-900 peer-checked:bg-zinc-900 peer-checked:text-white">
                               {isProficient ? "✓" : ""}
                             </span>
                           </label>
-
                           <div>
                             <p className="text-sm font-medium text-zinc-900">{entry.name}</p>
                             <p className="text-[10px] uppercase tracking-wide text-zinc-500">{entry.ability}</p>
@@ -551,15 +459,11 @@ function StatSheetPageContent() {
                   <div key={columnIndex} className="space-y-2">
                     {skillColumn.map((entry) => {
                       const level = skillLevels[entry.name] ?? 0;
-                      const skillTotal =
-                        modifiers[entry.ability] +
+                      const skillTotal = modifiers[entry.ability] +
                         (level === 2 ? proficiencyBonus * 2 : level === 1 ? proficiencyBonus : 0);
-
                       return (
-                        <div
-                          key={entry.name}
-                          className="flex items-center justify-between gap-3 rounded-lg bg-zinc-50 px-3 py-2"
-                        >
+                        <div key={entry.name}
+                          className="flex items-center justify-between gap-3 rounded-lg bg-zinc-50 px-3 py-2">
                           <div className="flex items-center gap-2">
                             <SkillCheckbox level={level} onClick={() => handleSkillCycle(entry.name)} />
                             <div>
@@ -567,9 +471,7 @@ function StatSheetPageContent() {
                               <p className="text-[10px] uppercase tracking-wide text-zinc-500">{entry.ability}</p>
                             </div>
                           </div>
-                          <span className="text-base font-semibold text-zinc-900">
-                            {formatModifier(skillTotal)}
-                          </span>
+                          <span className="text-base font-semibold text-zinc-900">{formatModifier(skillTotal)}</span>
                         </div>
                       );
                     })}
@@ -581,12 +483,9 @@ function StatSheetPageContent() {
         </section>
 
         <div className="mt-5 flex justify-end">
-          <button
-            type="button"
-            onClick={handleNext}
+          <button type="button" onClick={handleNext}
             disabled={isSavingAndContinuing || headerLoading || !character}
-            className="rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
+            className="rounded-lg bg-zinc-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-zinc-700 disabled:cursor-not-allowed disabled:opacity-60">
             {isSavingAndContinuing ? "Saving..." : "Next"}
           </button>
         </div>

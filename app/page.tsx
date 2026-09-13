@@ -2,8 +2,8 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { User } from "@supabase/supabase-js";
-import { supabase } from "@/lib/supabase/client";
+import { authClient } from "@/lib/auth-client";
+import { getCharacters, createCharacter } from "@/lib/actions";
 
 type Character = {
   id: number;
@@ -16,17 +16,19 @@ type Character = {
 
 export default function Home() {
   const router = useRouter();
-  const [user, setUser] = useState<User | null>(null);
+  const { data: session, isPending: sessionLoading } = authClient.useSession();
+  const user = session?.user ?? null;
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [newEmail, setNewEmail] = useState("");
+  const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [characterName, setCharacterName] = useState("");
   const [characterClass, setCharacterClass] = useState("");
   const [characterLevel, setCharacterLevel] = useState("1");
   const [characters, setCharacters] = useState<Character[]>([]);
   const [charactersLoading, setCharactersLoading] = useState(false);
-  const [loading, setLoading] = useState(true);
   const [activeAction, setActiveAction] = useState<
     "signin" | "create-character" | "update-email" | "update-password" | "signout" | null
   >(null);
@@ -34,63 +36,20 @@ export default function Home() {
   const [errorMessage, setErrorMessage] = useState("");
 
   useEffect(() => {
-    const loadUser = async () => {
-      const {
-        data: { user: currentUser },
-      } = await supabase.auth.getUser();
-      setUser(currentUser);
-      setLoading(false);
-    };
-
-    void loadUser();
-
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      const nextUser = session?.user ?? null;
-      setUser(nextUser);
-      setNewEmail(nextUser?.email ?? "");
-    });
-
-    return () => {
-      subscription.unsubscribe();
-    };
-  }, []);
+    if (user) setNewEmail(user.email ?? "");
+  }, [user]);
 
   useEffect(() => {
-    const loadCharacters = async () => {
-      if (!user) {
-        setCharacters([]);
-        return;
-      }
-
-      setCharactersLoading(true);
-      setErrorMessage("");
-
-      // Join character_inventory to get race
-      const { data, error } = await supabase
-        .from("characters")
-        .select("id, user_id, name, class, lv, character_inventory(race)")
-        .eq("user_id", user.id)
-        .order("name", { ascending: true });
-
-      if (error) {
-        setErrorMessage(error.message);
-        setCharacters([]);
-      } else {
-        // Map race from joined character_inventory
-        setCharacters(
-          (data ?? []).map((character: any) => ({
-            ...character,
-            race: character.character_inventory?.race ?? "",
-          }))
-        );
-      }
-
-      setCharactersLoading(false);
-    };
-
-    void loadCharacters();
+    if (!user) {
+      setCharacters([]);
+      return;
+    }
+    setCharactersLoading(true);
+    setErrorMessage("");
+    getCharacters()
+      .then(setCharacters)
+      .catch((err) => setErrorMessage(String(err.message)))
+      .finally(() => setCharactersLoading(false));
   }, [user]);
 
   const handleSignIn = async (event: FormEvent<HTMLFormElement>) => {
@@ -99,15 +58,8 @@ export default function Home() {
     setSuccessMessage("");
     setErrorMessage("");
 
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-
-    if (error) {
-      setErrorMessage(error.message);
-    }
-
+    const { error } = await authClient.signIn.email({ email, password });
+    if (error) setErrorMessage(error.message ?? "Sign in failed.");
     setActiveAction(null);
   };
 
@@ -117,61 +69,13 @@ export default function Home() {
     setSuccessMessage("");
     setErrorMessage("");
 
-    const { error } = await supabase.auth.updateUser({ email: newEmail });
-
+    const { error } = await authClient.changeEmail({ newEmail });
     if (error) {
-      setErrorMessage(error.message);
+      setErrorMessage(error.message ?? "Email update failed.");
     } else {
-      setSuccessMessage(
-        "Email update requested. Check your inbox if Supabase asks for confirmation."
-      );
+      setSuccessMessage("Email update requested. Check your inbox for a confirmation link.");
     }
-
     setActiveAction(null);
-  };
-
-  const handleCreateCharacter = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-
-    if (!user) {
-      setErrorMessage("You must be signed in to create a character.");
-      return;
-    }
-
-    setActiveAction("create-character");
-    setSuccessMessage("");
-    setErrorMessage("");
-
-    const parsedLevel = Number.parseInt(characterLevel, 10);
-
-    if (!Number.isInteger(parsedLevel) || parsedLevel < 1) {
-      setErrorMessage("Level must be a whole number greater than 0.");
-      setActiveAction(null);
-      return;
-    }
-
-    const { data, error } = await supabase
-      .from("characters")
-      .insert({
-        user_id: user.id,
-        name: characterName,
-        class: characterClass,
-        lv: parsedLevel,
-      })
-      .select("id")
-      .single();
-
-    if (error) {
-      setErrorMessage(error.message);
-      setActiveAction(null);
-      return;
-    }
-
-    setCharacterName("");
-    setCharacterClass("");
-    setCharacterLevel("1");
-    setActiveAction(null);
-    router.push(`/edit/stat-sheet?characterId=${data.id}`);
   };
 
   const handleUpdatePassword = async (event: FormEvent<HTMLFormElement>) => {
@@ -180,30 +84,54 @@ export default function Home() {
     setSuccessMessage("");
     setErrorMessage("");
 
-    const { error } = await supabase.auth.updateUser({ password: newPassword });
-
+    const { error } = await authClient.changePassword({ currentPassword, newPassword });
     if (error) {
-      setErrorMessage(error.message);
+      setErrorMessage(error.message ?? "Password update failed.");
     } else {
       setSuccessMessage("Password updated successfully.");
+      setCurrentPassword("");
       setNewPassword("");
     }
-
     setActiveAction(null);
+  };
+
+  const handleCreateCharacter = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!user) { setErrorMessage("You must be signed in to create a character."); return; }
+    setActiveAction("create-character");
+    setSuccessMessage("");
+    setErrorMessage("");
+
+    const parsedLevel = Number.parseInt(characterLevel, 10);
+    if (!Number.isInteger(parsedLevel) || parsedLevel < 1) {
+      setErrorMessage("Level must be a whole number greater than 0.");
+      setActiveAction(null);
+      return;
+    }
+
+    try {
+      const id = await createCharacter(characterName, characterClass, parsedLevel);
+      setCharacterName("");
+      setCharacterClass("");
+      setCharacterLevel("1");
+      setActiveAction(null);
+      router.push(`/edit/stat-sheet?characterId=${id}`);
+    } catch (err: any) {
+      setErrorMessage(err.message ?? "Failed to create character.");
+      setActiveAction(null);
+    }
   };
 
   const handleSignOut = async () => {
     setActiveAction("signout");
     setSuccessMessage("");
     setErrorMessage("");
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      setErrorMessage(error.message);
-    }
+    const { error } = await authClient.signOut();
+    if (error) setErrorMessage(error.message ?? "Sign out failed.");
     setActiveAction(null);
   };
 
-  if (loading) {
+  if (sessionLoading) {
     return (
       <main className="flex min-h-screen items-center justify-center bg-zinc-50 px-6 py-10">
         <p className="text-sm text-zinc-600">Loading account...</p>
@@ -332,17 +260,29 @@ export default function Home() {
                 </button>
               </form>
 
-              <form className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto]" onSubmit={handleUpdatePassword}>
-                <input
-                  type="password"
-                  value={newPassword}
-                  onChange={(event) => setNewPassword(event.target.value)}
-                  minLength={6}
-                  required
-                  autoComplete="new-password"
-                  placeholder="New password"
-                  className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none ring-zinc-900 placeholder:text-zinc-400 focus:ring-2"
-                />
+              <form className="mt-4 space-y-3" onSubmit={handleUpdatePassword}>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <input
+                    type="password"
+                    value={currentPassword}
+                    onChange={(event) => setCurrentPassword(event.target.value)}
+                    minLength={6}
+                    required
+                    autoComplete="current-password"
+                    placeholder="Current password"
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none ring-zinc-900 placeholder:text-zinc-400 focus:ring-2"
+                  />
+                  <input
+                    type="password"
+                    value={newPassword}
+                    onChange={(event) => setNewPassword(event.target.value)}
+                    minLength={6}
+                    required
+                    autoComplete="new-password"
+                    placeholder="New password"
+                    className="w-full rounded-lg border border-zinc-300 bg-white px-3 py-2.5 text-sm outline-none ring-zinc-900 placeholder:text-zinc-400 focus:ring-2"
+                  />
+                </div>
                 <button
                   type="submit"
                   disabled={activeAction !== null}

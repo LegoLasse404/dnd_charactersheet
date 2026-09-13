@@ -2,7 +2,17 @@
 
 import { Suspense, useEffect, useState, useRef } from "react";
 import { useSearchParams } from "next/navigation";
-import { supabase } from "@/lib/supabase/client";
+import {
+  getCharacter,
+  getCharacterActions,
+  getCharacterSpells,
+  getCharacterCantrips,
+  getCharacterStats,
+  getCharacterInventory,
+  updateCharacterCurrentStats,
+  updateAbilityCharges,
+  patchCharacterInventory,
+} from "@/lib/actions";
 
 export const dynamic = 'force-dynamic';
 
@@ -99,6 +109,7 @@ function AbilitiesAndItemsReadonlyContent() {
   const [headerLoading, setHeaderLoading] = useState(true);
   const [headerError, setHeaderError] = useState("");
   const [selectedSpellSlots, setSelectedSpellSlots] = useState<Record<number, string>>({});
+  const [statsData, setStatsData] = useState<Record<string, unknown> | null>(null);
 
   useEffect(() => {
     if (inventoryTextRef.current) {
@@ -117,111 +128,101 @@ function AbilitiesAndItemsReadonlyContent() {
       setHeaderLoading(true);
       setHeaderError("");
 
-      const { data, error } = await supabase
-        .from("characters")
-        .select("id, user_id, name, class, lv")
-        .eq("id", characterId)
-        .single();
+      const parsedId = Number.parseInt(characterId, 10);
 
-      if (error) {
-        setHeaderError(error.message);
-        setCharacter(null);
-      } else {
-        setCharacter(data);
+      try {
+        const charData = await getCharacter(parsedId);
+        if (!charData) {
+          setHeaderError("Character not found.");
+          setHeaderLoading(false);
+          return;
+        }
+        setCharacter(charData);
+      } catch (err: any) {
+        setHeaderError(err.message ?? "Failed to load character.");
+        setHeaderLoading(false);
+        return;
       }
 
-      // Load abilities from all three tables in parallel
+      // Load abilities in parallel
       setAbilitiesLoading(true);
       setAbilitiesError("");
 
-      const [actionsResult, spellsResult, cantripsResult] = await Promise.all([
-        supabase
-          .from("character_actions")
-          .select("id, name, description, damage, scaling, usage_timing, charges, curr_charges, restore_on")
-          .eq("character_id", characterId)
-          .order("name", { ascending: true }),
-        supabase
-          .from("character_spells")
-          .select("id, name, description, damage, scaling, usage_timing, spell_level")
-          .eq("character_id", characterId)
-          .order("name", { ascending: true }),
-        supabase
-          .from("character_cantrips")
-          .select("id, name, description, damage, scaling, usage_timing")
-          .eq("character_id", characterId)
-          .order("name", { ascending: true }),
-      ]);
+      try {
+        const [loadedActions, loadedSpells, loadedCantrips] = await Promise.all([
+          getCharacterActions(parsedId),
+          getCharacterSpells(parsedId),
+          getCharacterCantrips(parsedId),
+        ]);
 
-      const firstError = actionsResult.error ?? spellsResult.error ?? cantripsResult.error;
-      if (firstError) {
-        setAbilitiesError(firstError.message);
-      } else {
-        const loadedActions = (actionsResult.data ?? []) as CharacterAction[];
-        setActions(loadedActions);
-        setSpells((spellsResult.data ?? []) as CharacterSpell[]);
-        setCantrips((cantripsResult.data ?? []) as CharacterCantrip[]);
+        const typedActions = loadedActions as CharacterAction[];
+        setActions(typedActions);
+        setSpells(loadedSpells as CharacterSpell[]);
+        setCantrips(loadedCantrips as CharacterCantrip[]);
 
-        // Build charges map from loaded actions
         const chargesMap: Record<number, number> = {};
-        for (const action of loadedActions) {
+        for (const action of typedActions) {
           if (action.charges != null) {
             chargesMap[action.id] = action.curr_charges ?? action.charges;
           }
         }
         setActionCharges(chargesMap);
+      } catch (err: any) {
+        setAbilitiesError(err.message ?? "Failed to load abilities.");
       }
       setAbilitiesLoading(false);
 
       // Spell slots
-      const { data: slotsData } = await supabase
-        .from("character_stats")
-        .select("spell_slots_1, spell_slots_2, spell_slots_3, spell_slots_4, spell_slots_5, spell_slots_6, spell_slots_7, spell_slots_8, spell_slots_9, current_spell_slots_1, current_spell_slots_2, current_spell_slots_3, current_spell_slots_4, current_spell_slots_5, current_spell_slots_6, current_spell_slots_7, current_spell_slots_8, current_spell_slots_9")
-        .eq("character_id", characterId)
-        .maybeSingle<any>();
-
-      if (slotsData) {
-        setSpellSlots({
-          1: String(slotsData.spell_slots_1),
-          2: String(slotsData.spell_slots_2),
-          3: String(slotsData.spell_slots_3),
-          4: String(slotsData.spell_slots_4),
-          5: String(slotsData.spell_slots_5),
-          6: String(slotsData.spell_slots_6),
-          7: String(slotsData.spell_slots_7),
-          8: String(slotsData.spell_slots_8),
-          9: String(slotsData.spell_slots_9),
-        });
-        setCurrentSpellSlots({
-          1: String(slotsData.current_spell_slots_1),
-          2: String(slotsData.current_spell_slots_2),
-          3: String(slotsData.current_spell_slots_3),
-          4: String(slotsData.current_spell_slots_4),
-          5: String(slotsData.current_spell_slots_5),
-          6: String(slotsData.current_spell_slots_6),
-          7: String(slotsData.current_spell_slots_7),
-          8: String(slotsData.current_spell_slots_8),
-          9: String(slotsData.current_spell_slots_9),
-        });
+      try {
+        const slotsData = await getCharacterStats(parsedId) as Record<string, unknown> | null;
+        setStatsData(slotsData);
+        if (slotsData) {
+          setSpellSlots({
+            1: String(slotsData.spell_slots_1 ?? 0),
+            2: String(slotsData.spell_slots_2 ?? 0),
+            3: String(slotsData.spell_slots_3 ?? 0),
+            4: String(slotsData.spell_slots_4 ?? 0),
+            5: String(slotsData.spell_slots_5 ?? 0),
+            6: String(slotsData.spell_slots_6 ?? 0),
+            7: String(slotsData.spell_slots_7 ?? 0),
+            8: String(slotsData.spell_slots_8 ?? 0),
+            9: String(slotsData.spell_slots_9 ?? 0),
+          });
+          setCurrentSpellSlots({
+            1: String(slotsData.current_spell_slots_1 ?? 0),
+            2: String(slotsData.current_spell_slots_2 ?? 0),
+            3: String(slotsData.current_spell_slots_3 ?? 0),
+            4: String(slotsData.current_spell_slots_4 ?? 0),
+            5: String(slotsData.current_spell_slots_5 ?? 0),
+            6: String(slotsData.current_spell_slots_6 ?? 0),
+            7: String(slotsData.current_spell_slots_7 ?? 0),
+            8: String(slotsData.current_spell_slots_8 ?? 0),
+            9: String(slotsData.current_spell_slots_9 ?? 0),
+          });
+        }
+      } catch {
+        // spell slots are optional, ignore errors
       }
 
       // Inventory
-      const { data: inventoryData } = await supabase
-        .from("character_inventory")
-        .select("inventory_text, race, age, height, weight, eyes, skin, hair, other_traits, languages, feats")
-        .eq("character_id", characterId)
-        .maybeSingle<any>();
-
-      setInventoryText(inventoryData?.inventory_text ?? "");
-      setRace(inventoryData?.race ?? "");
-      setAge(inventoryData?.age ?? "");
-      setHeight(inventoryData?.height ?? "");
-      setWeight(inventoryData?.weight ?? "");
-      setEyes(inventoryData?.eyes ?? "");
-      setSkin(inventoryData?.skin ?? "");
-      setHair(inventoryData?.hair ?? "");
-      setOtherTraits(inventoryData?.other_traits ?? "");
-      setLanguages(inventoryData?.languages ?? "");
-      setFeats(inventoryData?.feats ?? "");
+      try {
+        const inventoryData = await getCharacterInventory(parsedId) as Record<string, unknown> | null;
+        if (inventoryData) {
+          setInventoryText(String(inventoryData.inventory_text ?? ""));
+          setRace(String(inventoryData.race ?? ""));
+          setAge(String(inventoryData.age ?? ""));
+          setHeight(String(inventoryData.height ?? ""));
+          setWeight(String(inventoryData.weight ?? ""));
+          setEyes(String(inventoryData.eyes ?? ""));
+          setSkin(String(inventoryData.skin ?? ""));
+          setHair(String(inventoryData.hair ?? ""));
+          setOtherTraits(String(inventoryData.other_traits ?? ""));
+          setLanguages(String(inventoryData.languages ?? ""));
+          setFeats(String(inventoryData.feats ?? ""));
+        }
+      } catch {
+        // inventory is optional, ignore errors
+      }
 
       setHeaderLoading(false);
     };
@@ -235,11 +236,11 @@ function AbilitiesAndItemsReadonlyContent() {
     if (!characterId) return;
     setSaving(true);
     setSaveError("");
-    const { error } = await supabase
-      .from("character_actions")
-      .update({ curr_charges: curr })
-      .eq("id", actionId);
-    if (error) setSaveError(error.message);
+    try {
+      await updateAbilityCharges("character_actions", actionId, curr);
+    } catch (err: any) {
+      setSaveError(err.message ?? "Failed to save.");
+    }
     setSaving(false);
   };
 
@@ -248,13 +249,13 @@ function AbilitiesAndItemsReadonlyContent() {
     if (!characterId) return;
     setSaving(true);
     setSaveError("");
-    const payload: any = {};
-    payload[`current_spell_slots_${level}`] = Number(value) || 0;
-    const { error } = await supabase
-      .from("character_stats")
-      .update(payload)
-      .eq("character_id", characterId);
-    if (error) setSaveError(error.message);
+    try {
+      await updateCharacterCurrentStats(Number.parseInt(characterId, 10), {
+        [`current_spell_slots_${level}`]: Number(value) || 0,
+      });
+    } catch (err: any) {
+      setSaveError(err.message ?? "Failed to save.");
+    }
     setSaving(false);
   };
 
@@ -276,13 +277,11 @@ function AbilitiesAndItemsReadonlyContent() {
     if (!characterId) return;
     setSaving(true);
     setSaveError("");
-    const payload: any = {};
-    payload[field] = value;
-    const { error } = await supabase
-      .from("character_inventory")
-      .update(payload)
-      .eq("character_id", characterId);
-    if (error) setSaveError(error.message);
+    try {
+      await patchCharacterInventory(Number.parseInt(characterId, 10), field, value);
+    } catch (err: any) {
+      setSaveError(err.message ?? "Failed to save.");
+    }
     setSaving(false);
   };
 
@@ -293,13 +292,13 @@ function AbilitiesAndItemsReadonlyContent() {
     if (!characterId) return;
     setSaving(true);
     setSaveError("");
-    const payload: any = {};
-    payload[`current_spell_slots_${level}`] = Number(newValue);
-    const { error } = await supabase
-      .from("character_stats")
-      .update(payload)
-      .eq("character_id", characterId);
-    if (error) setSaveError(error.message);
+    try {
+      await updateCharacterCurrentStats(Number.parseInt(characterId, 10), {
+        [`current_spell_slots_${level}`]: Number(newValue),
+      });
+    } catch (err: any) {
+      setSaveError(err.message ?? "Failed to save.");
+    }
     setSaving(false);
     setSelectedSpellSlots((prev) => ({ ...prev, [spellId]: "" }));
   };
@@ -308,36 +307,35 @@ function AbilitiesAndItemsReadonlyContent() {
     if (!characterId) return;
     setSaving(true);
     setSaveError("");
+    const parsedId = Number.parseInt(characterId, 10);
 
-    // Restore spell slots and HP
-    const spellPayload: any = {};
-    for (let level = 1; level <= 9; level++) {
-      spellPayload[`current_spell_slots_${level}`] = Number(spellSlots[level]) || 0;
-    }
-    const { data: statsData, error: statsError } = await supabase
-      .from("character_stats")
-      .select("hp_max")
-      .eq("character_id", characterId)
-      .maybeSingle();
-    if (statsError) setSaveError(statsError.message);
-    if (statsData && typeof statsData.hp_max !== "undefined") {
-      spellPayload["curr_hp"] = statsData.hp_max;
-    }
-    await supabase.from("character_stats").update(spellPayload).eq("character_id", characterId);
-    setCurrentSpellSlots({ ...spellSlots });
-
-    // Restore charges for actions that restore on long or short rest
-    for (const action of actions) {
-      if (
-        action.charges != null &&
-        (action.restore_on === "long_rest" || action.restore_on === "short_rest")
-      ) {
-        await supabase
-          .from("character_actions")
-          .update({ curr_charges: action.charges })
-          .eq("id", action.id);
-        setActionCharges((prev) => ({ ...prev, [action.id]: action.charges! }));
+    try {
+      const spellPayload: Record<string, number> = {};
+      for (let level = 1; level <= 9; level++) {
+        spellPayload[`current_spell_slots_${level}`] = Number(spellSlots[level]) || 0;
       }
+
+      // Restore HP to max if we have stats data
+      const currentStats = statsData as Record<string, unknown> | null;
+      if (currentStats?.hp_max != null) {
+        spellPayload["curr_hp"] = Number(currentStats.hp_max);
+      }
+
+      await updateCharacterCurrentStats(parsedId, spellPayload);
+      setCurrentSpellSlots({ ...spellSlots });
+
+      // Restore charges for actions that restore on long or short rest
+      for (const action of actions) {
+        if (
+          action.charges != null &&
+          (action.restore_on === "long_rest" || action.restore_on === "short_rest")
+        ) {
+          await updateAbilityCharges("character_actions", action.id, action.charges);
+          setActionCharges((prev) => ({ ...prev, [action.id]: action.charges! }));
+        }
+      }
+    } catch (err: any) {
+      setSaveError(err.message ?? "Failed to save.");
     }
     setSaving(false);
   };
@@ -347,14 +345,15 @@ function AbilitiesAndItemsReadonlyContent() {
     setSaving(true);
     setSaveError("");
 
-    for (const action of actions) {
-      if (action.charges != null && action.restore_on === "short_rest") {
-        await supabase
-          .from("character_actions")
-          .update({ curr_charges: action.charges })
-          .eq("id", action.id);
-        setActionCharges((prev) => ({ ...prev, [action.id]: action.charges! }));
+    try {
+      for (const action of actions) {
+        if (action.charges != null && action.restore_on === "short_rest") {
+          await updateAbilityCharges("character_actions", action.id, action.charges);
+          setActionCharges((prev) => ({ ...prev, [action.id]: action.charges! }));
+        }
       }
+    } catch (err: any) {
+      setSaveError(err.message ?? "Failed to save.");
     }
     setSaving(false);
   };
